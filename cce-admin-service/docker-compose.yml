@@ -1,6 +1,6 @@
 # Local environment for cce-admin-service (milestone M0, section 9.1 of the design).
 # Every published port is bound to 127.0.0.1. Image tags come from D-05 and never float.
-# admin-service (profile "app") is added in Phase 7.
+# admin-service runs only with the profile "app" (docker compose --profile app up -d --build --wait).
 #
 # DESIGN-GAP: section 9.1 fixes the health check commands but not their interval, timeout,
 # retries or start_period. The values below are the smallest choice that lets
@@ -91,6 +91,24 @@ services:
         condition: service_healthy
       keycloak:
         condition: service_healthy
+
+  # The service itself (section 9.1), only with --profile app. Its health check is the image's
+  # HEALTHCHECK (Dockerfile). JWT_ISSUER is not overridden: it stays the issuer Keycloak writes into
+  # every token because of KC_HOSTNAME.
+  admin-service:
+    profiles: [app]
+    build: .
+    ports: ["127.0.0.1:8085:8085"]
+    env_file: .env
+    environment:
+      DATABASE_URL: jdbc:postgresql://postgres:5432/admin_service
+      KEYCLOAK_SERVER_URL: http://keycloak:8080/auth
+      JWT_JWK_SET_URI: http://keycloak:8080/auth/realms/cce/protocol/openid-connect/certs
+      GATEWAY_BASE_URL: http://gateway-stub:8090
+    depends_on:
+      postgres: { condition: service_healthy }
+      keycloak: { condition: service_healthy }
+      gateway-stub: { condition: service_healthy }
 
 volumes:
   pgdata:

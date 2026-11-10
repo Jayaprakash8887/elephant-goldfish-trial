@@ -14,7 +14,7 @@ public final class MeDtos {
     public record Me(UUID id, String username, List<String> roles, String facilityScope) {
     }
 
-    /** An item of {@code GET /me/menus} (Phase 7). */
+    /** An item of {@code GET /me/menus}. {@code children} is empty for {@code DETAIL} menus. */
     public record MenuTreeItem(
             UUID id,
             String key,

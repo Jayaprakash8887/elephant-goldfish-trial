@@ -21,3 +21,4 @@ PUT /admin/v1/users/{id}
 PATCH /admin/v1/users/{id}/status
 PUT /admin/v1/users/{id}/roles
 POST /admin/v1/users/{id}/reset-password
+GET /admin/v1/me/menus
