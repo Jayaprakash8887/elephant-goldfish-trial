@@ -71,3 +71,24 @@ export const USER_ROLES_MIN_ON_CREATE = 1;
 export const USER_ROLES_MAX = 20;
 /** The Users list search `q`: 1 to 100 characters, an empty one is ignored. */
 export const USER_SEARCH_MAX = 100;
+
+// ---------------------------------------------------------------------------------------------
+// Menu (admin-service §4.4, "Menu"; §4.5, `POST /menus`, `PUT /menus/:id`)
+// ---------------------------------------------------------------------------------------------
+
+/** Lower-case words of letters, digits and `-`, each starting with a letter, joined by dots. */
+export const MENU_KEY_PATTERN = /^[a-z][a-z0-9-]*(\.[a-z][a-z0-9-]*)*$/;
+export const MENU_KEY_MAX = 100;
+export const MENU_LABEL_MIN = 1;
+export const MENU_LABEL_MAX = 100;
+/** 1 to 255 characters. */
+export const MENU_PATH_MIN = 1;
+export const MENU_PATH_MAX = 255;
+/** Starts with `/`. */
+export const MENU_PATH_START = /^\//;
+/** Made only of letters, digits and `/ _ - . :` (`:` marks a route parameter). */
+export const MENU_PATH_CHARS = /^[A-Za-z0-9/_\-.:]*$/;
+/** The name of a Heroicons 2 outline icon component, for example `ChartBarIcon`. */
+export const MENU_ICON_PATTERN = /^[A-Z][A-Za-z0-9]*Icon$/;
+export const MENU_SORT_ORDER_MIN = 0;
+export const MENU_SORT_ORDER_MAX = 10000;

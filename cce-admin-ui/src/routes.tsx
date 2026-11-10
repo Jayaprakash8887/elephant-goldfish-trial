@@ -2,6 +2,7 @@
 // (createMemoryRouter). Each page's route is added in the step that creates the page.
 import { Navigate, type RouteObject } from 'react-router';
 import { AppLayout } from './pages/AppLayout';
+import { MenusPage } from './pages/MenusPage';
 import { NotFoundPage } from './pages/NotFoundPage';
 import { RoleDetailPage } from './pages/RoleDetailPage';
 import { RolesListPage } from './pages/RolesListPage';
@@ -20,6 +21,7 @@ export const routes: RouteObject[] = [
       { path: 'users/:id', element: <UserEditPage /> },
       { path: 'roles', element: <RolesListPage /> },
       { path: 'roles/:id', element: <RoleDetailPage /> },
+      { path: 'menus', element: <MenusPage /> },
       { path: '*', element: <NotFoundPage /> },
     ],
   },

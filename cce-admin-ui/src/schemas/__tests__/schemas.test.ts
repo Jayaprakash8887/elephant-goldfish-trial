@@ -10,11 +10,20 @@ import {
   permissionRowSchema,
   permissionsFormSchema,
 } from '../permissionSchemas';
+import {
+  menuFormSchema,
+  PARENT_NOT_ALLOWED_MESSAGE,
+  PARENT_REQUIRED_MESSAGE,
+} from '../menuSchemas';
 import { createRoleSchema, roleDisplaySchema } from '../roleSchemas';
 import { createUserSchema, profileSchema, userRolesSchema } from '../userSchemas';
 import {
   EMAIL_MAX,
   FACILITY_SCOPE_MAX,
+  MENU_KEY_MAX,
+  MENU_LABEL_MAX,
+  MENU_PATH_MAX,
+  MENU_SORT_ORDER_MAX,
   PAGE_SIZES,
   PERSON_NAME_MAX,
   PERMISSION_CATEGORY_MAX,
@@ -419,5 +428,124 @@ describe('userRolesSchema (console-only rule)', () => {
 describe('user search length', () => {
   it(`is at most ${USER_SEARCH_MAX} characters`, () => {
     expect(USER_SEARCH_MAX).toBe(100);
+  });
+});
+
+const NAV_ID = '10000000-0000-4000-8000-000000000005';
+const OTHER_ID = '10000000-0000-4000-8000-000000000012';
+const validNav = {
+  key: 'reports',
+  label: 'Reports',
+  path: '/reports',
+  icon: '',
+  type: 'NAV' as const,
+  parentId: '',
+  sortOrder: 110,
+  isActive: true,
+};
+const menuSchema = menuFormSchema([NAV_ID]);
+
+function menuErrors(values: Record<string, unknown>) {
+  const result = menuSchema.safeParse({ ...validNav, ...values });
+  return result.success ? {} : result.error.flatten().fieldErrors;
+}
+
+describe('menuFormSchema', () => {
+  it('accepts a NAV entry and trims every string', () => {
+    expect(
+      menuSchema.parse({
+        ...validNav,
+        key: ' reports ',
+        label: ' Reports ',
+        path: ' /reports ',
+        icon: ' ChartBarIcon ',
+      }),
+    ).toEqual({ ...validNav, icon: 'ChartBarIcon' });
+  });
+
+  it.each(['dashboard', 'patients.patient-detail', 'a1-b.c2'])('accepts the key %s', (key) => {
+    expect(menuErrors({ key })).toEqual({});
+  });
+
+  it.each([
+    ['empty', ''],
+    ['upper case', 'Reports'],
+    ['a leading digit', '1reports'],
+    ['an empty word', 'patients..detail'],
+    ['a word starting with a hyphen', 'patients.-detail'],
+    ['a space', 'my reports'],
+  ])('rejects a key that is %s', (_case, key) => {
+    expect(menuErrors({ key }).key).toBeDefined();
+  });
+
+  it(`accepts a key of at most ${MENU_KEY_MAX} characters`, () => {
+    expect(menuErrors({ key: 'a'.repeat(MENU_KEY_MAX) })).toEqual({});
+    expect(menuErrors({ key: 'a'.repeat(MENU_KEY_MAX + 1) }).key).toContain(
+      `At most ${MENU_KEY_MAX} characters.`,
+    );
+  });
+
+  it(`requires a label of 1 to ${MENU_LABEL_MAX} characters`, () => {
+    expect(menuErrors({ label: ' ' }).label).toContain('Enter a label.');
+    expect(menuErrors({ label: 'x'.repeat(MENU_LABEL_MAX) })).toEqual({});
+    expect(menuErrors({ label: 'x'.repeat(MENU_LABEL_MAX + 1) }).label).toBeDefined();
+  });
+
+  it.each(['/', '/compliance/patients/:id', '/a_b-c.d'])('accepts the path %s', (path) => {
+    expect(menuErrors({ path })).toEqual({});
+  });
+
+  it('rejects an empty path, one without a leading /, and other characters', () => {
+    expect(menuErrors({ path: '' }).path).toContain('Enter a path.');
+    expect(menuErrors({ path: 'reports' }).path).toContain('Start with /.');
+    expect(menuErrors({ path: '/reports?x=1' }).path).toContain(
+      'Use only letters, digits and / _ - . :.',
+    );
+  });
+
+  it(`accepts a path of at most ${MENU_PATH_MAX} characters`, () => {
+    expect(menuErrors({ path: `/${'a'.repeat(MENU_PATH_MAX - 1)}` })).toEqual({});
+    expect(menuErrors({ path: `/${'a'.repeat(MENU_PATH_MAX)}` }).path).toBeDefined();
+  });
+
+  it('accepts no icon or an icon component name, and rejects other names', () => {
+    expect(menuErrors({ icon: '' })).toEqual({});
+    expect(menuErrors({ icon: 'MysteryIcon' })).toEqual({});
+    expect(menuErrors({ icon: 'chartBarIcon' }).icon).toBeDefined();
+    expect(menuErrors({ icon: 'ChartBar' }).icon).toBeDefined();
+  });
+
+  it(`requires a whole sort order from 0 to ${MENU_SORT_ORDER_MAX}`, () => {
+    expect(menuErrors({ sortOrder: 0 })).toEqual({});
+    expect(menuErrors({ sortOrder: MENU_SORT_ORDER_MAX })).toEqual({});
+    const message = `A whole number from 0 to ${MENU_SORT_ORDER_MAX}.`;
+    expect(menuErrors({ sortOrder: -1 }).sortOrder).toContain(message);
+    expect(menuErrors({ sortOrder: MENU_SORT_ORDER_MAX + 1 }).sortOrder).toContain(message);
+    expect(menuErrors({ sortOrder: 1.5 }).sortOrder).toContain(message);
+    // An empty number input gives NaN with valueAsNumber.
+    expect(menuErrors({ sortOrder: Number.NaN }).sortOrder).toContain(message);
+  });
+
+  it('accepts only the two menu types', () => {
+    expect(menuErrors({ type: 'ROUTE' }).type).toBeDefined();
+  });
+});
+
+describe('menuFormSchema parent rule (console-only rule)', () => {
+  it('requires one of the NAV entries as the parent of a DETAIL entry', () => {
+    expect(menuErrors({ type: 'DETAIL', parentId: NAV_ID })).toEqual({});
+    expect(menuErrors({ type: 'DETAIL', parentId: '' }).parentId).toEqual([
+      PARENT_REQUIRED_MESSAGE,
+    ]);
+    expect(menuErrors({ type: 'DETAIL', parentId: OTHER_ID }).parentId).toEqual([
+      PARENT_REQUIRED_MESSAGE,
+    ]);
+  });
+
+  it('allows no parent for a NAV entry', () => {
+    expect(menuErrors({ type: 'NAV', parentId: '' })).toEqual({});
+    expect(menuErrors({ type: 'NAV', parentId: NAV_ID }).parentId).toEqual([
+      PARENT_NOT_ALLOWED_MESSAGE,
+    ]);
   });
 });

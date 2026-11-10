@@ -2885,3 +2885,23 @@ Note for Phase 6: User responses built in memory may carry 9 fractional digits (
 Orchestrator re-ran ./mvnw verify: exit 0.
 ````
 
+### H-057 · 2026-11-10 17:11 UTC · orchestrator action · Implement admin-ui step 6 (F5 menus catalog)
+
+- **Actor:** Orchestrator -> fresh implementation agent
+
+**Input** (what was asked or run):
+
+````text
+Fresh agent, same brief. Scope: UI step 6, F5 menus catalog.
+````
+
+**Output** (what came back):
+
+````markdown
+Agent report (condensed): menu schemas, icon map (10 seed icons + fallback), MenuIcon, MenuTreeTable, MenuForm, MenusPage; createMenu/updateMenu, create/update/toggle hooks; /menus route.
+Check passed: 24 files / 403 tests; coverage 99.72% stmts, 96.83% branches. F5 exit row (add DETAIL under NAV, DUPLICATE_MENU_KEY, deactivate re-reads the tree) proven with MSW.
+DESIGN-GAPs (7, small): toggled entry missing on re-read; validation texts; form headings; type select in create mode and default sort order; button names; success text after toggle; empty-catalog text.
+Risk noted: under machine load (load avg ~17 on 14 cores) some existing tests hit the 5 s timeout; reran green twice.
+Orchestrator re-ran the check under load avg ~8: exit 0, 403/403.
+````
+
