@@ -1,5 +1,7 @@
 package org.cce.admin.support;
 
+import org.cce.admin.client.GatewaySyncClient;
+import org.cce.admin.client.KeycloakGateway;
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -8,12 +10,15 @@ import org.springframework.boot.testcontainers.service.connection.ServiceConnect
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.testcontainers.containers.PostgreSQLContainer;
 
 /**
  * Base class of every database test. One Postgres container (the singleton-container pattern) and
  * one Spring context are shared by every subclass. Each test starts from the seed rows only. Web and
  * service tests share the context: MockMvc is configured, and tokens come from {@link TestJwtFactory}.
+ * {@link KeycloakGateway} and {@link GatewaySyncClient} are Mockito mocks here, so every database test
+ * shares the one context (PRD §9 Testability).
  */
 @SpringBootTest
 @ActiveProfiles("test")
@@ -30,6 +35,12 @@ public abstract class DatabaseTestBase {
 
     @Autowired
     protected JdbcTemplate jdbcTemplate;
+
+    @MockitoBean
+    protected KeycloakGateway keycloakGateway;
+
+    @MockitoBean
+    protected GatewaySyncClient gatewaySyncClient;
 
     /**
      * Removes everything the tests created and keeps the seed rows (section 6). Row triggers do not

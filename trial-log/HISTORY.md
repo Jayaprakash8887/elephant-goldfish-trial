@@ -2826,3 +2826,22 @@ DESIGN-GAPs (6, small): editor needs onDirtyChange prop for the guard (component
 Orchestrator re-ran the check: exit 0.
 ````
 
+### H-054 · 2026-11-10 16:46 UTC · orchestrator action · Implement admin-service phase 4 (clients, linking, bootstrap, stand-in)
+
+- **Actor:** Orchestrator -> fresh implementation agent
+
+**Input** (what was asked or run):
+
+````text
+Fresh agent, same brief. Scope: Phase 4, Keycloak and gateway clients, account linking, bootstrap, stand-in gateway.
+````
+
+**Output** (what came back):
+
+````markdown
+Agent report (condensed): KeycloakGateway + admin-client implementation, GatewaySyncClient (HTTP), GatewaySyncService, AccountLinker, BootstrapAdminRunner, user DTOs/views; gateway-stub module (JDK HTTP server, JDBC, Keycloak REST; tags managed roles cce-managed).
+Exit check: ./mvnw verify 132 tests pass; stub 16 tests pass; compose with gateway-stub healthy; bootstrap linked test-admin as SUPER_ADMIN with one USER_CREATED audit row (linked=true); GET /me 200 SUPER_ADMIN; restart warns to unset BOOTSTRAP_ADMIN_USERNAME; stub 401 without token, 200 with service token, 503 in fail mode, 200 back in ok mode. Extra probe: stub creates a tagged realm role from a new row and deletes it when the row goes; SUPER_ADMIN and CCE_ADMIN_SERVICE untouched.
+DESIGN-GAPs (4): shade plugin writes dependency-reduced-pom.xml into the source tree (not git-ignored); error-summary format; after-JSON of USER_CREATE failure row; operation/step names for reactivateAsAdmin failures.
+Orchestrator: added the reduced pom to .gitignore; re-ran both verifies (exit 0).
+````
+

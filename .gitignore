@@ -26,3 +26,6 @@ coverage/
 
 # Recording tool lock file
 trial-log/.history.lock
+
+# Shade plugin output of the stand-in gateway build (DESIGN-GAP, phase 4)
+cce-admin-service/gateway-stub/dependency-reduced-pom.xml
