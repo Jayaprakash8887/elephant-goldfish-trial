@@ -23,7 +23,9 @@ EGM has three roles:
 
 The trial is complete. Both designs were drafted, reviewed twice and resolved. Both repositories
 are built, and their unit tests and end-to-end tests pass against a real Postgres and Keycloak.
-The verdict, with caveats, is in [trial-log/REPORT.md](trial-log/REPORT.md#1-short-answer).
+The verdict, with caveats, is in [trial-log/REPORT.md](trial-log/REPORT.md#1-short-answer). A
+shareable copy of the report is at <https://claude.ai/artifact/LcAqS7kuxnYocsRiw9Lzc7>. It is
+private until its owner shares it.
 
 ## Where to look
 
