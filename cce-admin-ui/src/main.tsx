@@ -1,4 +1,4 @@
 import './index.css';
+import { bootstrap } from './bootstrap';
 
-// Step 1 placeholder: renders nothing. Step 2 replaces this with
-// `void bootstrap(document.getElementById('root')!)`.
+void bootstrap(document.getElementById('root')!);

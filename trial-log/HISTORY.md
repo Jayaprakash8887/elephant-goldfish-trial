@@ -2746,3 +2746,23 @@ Other: one compile retry (AssertJ overload ambiguity in a test).
 Orchestrator re-ran ./mvnw verify: exit 0.
 ````
 
+### H-050 · 2026-11-10 16:10 UTC · orchestrator action · Implement admin-ui step 2 (F1 shell and foundations)
+
+- **Actor:** Orchestrator -> fresh implementation agent
+
+**Input** (what was asked or run):
+
+````text
+Fresh agent, same brief. Scope: UI step 2, F1 shell and foundations (items 19-30, 36-38, 47-48, 57-60, 81-82, 91-96 and 12 test files).
+````
+
+**Output** (what came back):
+
+````markdown
+Agent report (condensed): bootstrap, routes, config, auth (keycloak, useAuth), full contract.ts, ApiError, client, me API, query keys/client, useMe, describeError, formErrors, layout (Sidebar, Header), InlineError, SyncFailedNotice, LoadingSpinner, AppLayout, StartupErrorScreen, NotFoundPage; test setup, typed fakeAuth (satisfies guard verified by breaking it), MSW fixtures/handlers, 7 lint fixtures.
+Check passed: lint clean, build OK (324.55 kB), 12 test files / 139 tests pass; coverage 98.9% stmts, 99.54% branches, 100% funcs. dist/ has no MSW.
+Exit-check rows proven: F1 login redirect (init with login-required, S256), header shows /me (incl. 403 inline), ApiError codes.
+DESIGN-GAPs (11, all small, marked in code): all MSW handlers created now (handlers not in the grow-by-step list); no code named for "no token" 401 (used UNAUTHENTICATED); empty-message marker for non-envelope errors; status/code for non-ApiError errors; InlineError texts for 4 kinds; mutation "result unknown" text limited to network/unexpected (design contradiction between item 59 and error section); labels for operator ids; "Users list" link text; spinner placement vs Header props; applyServerErrors "other messages" undefined; ROLE_NOT_SYNCED detail without roleIds[i].
+Orchestrator re-ran the check: exit 0.
+````
+
