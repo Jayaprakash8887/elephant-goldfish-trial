@@ -71,3 +71,56 @@ your own tasks", so each entry records:
 - **Next:** check that a headless session sees EGM's skills and reviewers, then draft the first
   design.
 - **Snapshot:** tag `step-00`
+
+## Step 01 · First drafting attempt, using the team's design docs (stopped)
+
+- **When:** 2026-11-10, 12:43–12:58 UTC. Orchestrating session `f5334475`. EGM sessions:
+  `d52e71e3` (probe), `126089df` (admin-ui) and `620c0b0a` (admin-service), all headless,
+  Claude Code 2.1.319, Opus 5.5, effort high.
+- **What was done:**
+  1. Probe (H-001). A new headless session in this folder registers all ten `egm:egm-*` agents.
+     EGM's skills are hidden from the model, as expected for skills only a person may start.
+     `AskUserQuestion` is not available in headless runs.
+  2. Started `/egm:egm-draft context/prd/CCE_Admin_Module_PRD.md` in two headless sessions at
+     once, one per design, each with its own artifact folder (H-002, H-003). The transcript shows
+     that the slash command started EGM's skill.
+  3. Both Elephants read the PRD and the team's docs and stopped at EGM's first gate, which asks
+     the author to confirm the context. The admin-service session wrote a header, a table of
+     inputs and a register of 9 conflicts and 15 gaps to `egm/admin-service/design_draft.md`.
+     The admin-ui session reported about 25 conflicts and gaps in its reply.
+  4. Found the cause of the refused plugin reads and worked around it (CHALLENGES C-11).
+  5. Created `docs/designs/author-decisions.md` (D-01 to D-04) for decisions both designs share
+     (C-12), and sent turn 2 to both sessions (H-004, H-005).
+  6. Added `trial-log/QA.md`, which pairs each EGM question with its answer, at the user's
+     request.
+- **Why it stopped:** at about 12:58 UTC the user asked to remove the team's existing
+  admin-service and admin-ui design docs from `context/`, so that EGM creates everything fresh
+  from the PRD. Both sessions had already read those docs. They were stopped before replying to
+  turn 2 and will not be continued.
+- **What EGM found in this attempt:** before drafting anything, the two Elephants listed
+  conflicts in the inputs that a reader could easily miss:
+  - The `api_permissions` shape in the data dictionary (UUID ids, wider columns) does not match
+    the gateway's real table (BIGSERIAL, narrower columns, a unique key).
+  - PRD §5 says "database `admin_service`", while PRD §6 and the data dictionary say "schema
+    `admin_service`". The gateway queries without a schema name, so tables in another schema
+    would be invisible to it.
+  - A gateway stub that does nothing would break S2 and S4 locally, because only the gateway
+    creates realm roles in Keycloak. The orchestrator had not noticed this.
+  - `INACTIVE` is "terminal" in PRD §2 but can be re-activated in B-34 and S5. The orchestrator
+    had not noticed this either.
+  - Gaps in the contract: menu keys versus ids, the shape of the B-41 warning, and missing
+    response fields.
+
+  The orchestrator had found the first two conflicts on its own while reading the inputs.
+- **Decisions:**
+  - By the user: design from the PRD alone, and remove the team's admin-service and admin-ui
+    docs from the inputs.
+  - By Claude:
+    - Keep the gateway contract doc and the cce-insights-ui docs. They describe existing systems
+      the module must fit, not designs to create.
+    - Keep this attempt in the record as tag `step-01`.
+    - Restart the drafting in new sessions.
+- **Cost:** about $2.39 estimated for the three EGM sessions (H-001 $0.15, H-002 $1.06, H-003
+  $1.18), plus the stopped turn-2 runs, which recorded no cost. Token counts are in timeline.md.
+- **Snapshot:** tag `step-01`, with the inputs and the partial draft as they were when the
+  attempt stopped.

@@ -23,3 +23,6 @@ coverage/
 *.iml
 .vscode/
 .DS_Store
+
+# Recording tool lock file
+trial-log/.history.lock

@@ -25,7 +25,9 @@ EGM has three roles:
 |---|---|
 | [trial-log/REPORT.md](trial-log/REPORT.md) | The step-by-step write-up (added at the end) |
 | [trial-log/JOURNAL.md](trial-log/JOURNAL.md) | One entry per step: what was done, decisions, problems, cost |
+| [trial-log/CHALLENGES.md](trial-log/CHALLENGES.md) | What got in the way of full development with EGM, and how each problem was solved |
 | [trial-log/HISTORY.md](trial-log/HISTORY.md) | Every input sent to EGM and its exact reply, in order |
+| [trial-log/QA.md](trial-log/QA.md) | Each question EGM asked, paired with the answer it got |
 | [trial-log/timeline.md](trial-log/timeline.md) | Generated from session transcripts: subagents, files read and written, tokens |
 | [context/](context/) | The inputs: PRD, the team's design docs, gateway contract (see `PROVENANCE.md`) |
 | [docs/designs/](docs/designs/) | The approved designs EGM produced |

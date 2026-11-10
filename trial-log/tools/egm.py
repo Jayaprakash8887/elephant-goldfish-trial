@@ -27,6 +27,7 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
+import qa
 from redact import scrub
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -40,10 +41,17 @@ EFFORT = os.environ.get("EGM_EFFORT", "high")
 # acceptEdits lets EGM write its drafts and reports inside this folder. Reviewers are read-only
 # by their own definitions. Only read-only git and ls commands are pre-approved. EGM gates use
 # plain chat because nobody can answer a structured question in a headless run.
+#
+# Headless sessions ignore the project's permission rules until the folder has been trusted in an
+# interactive terminal session ("Ignoring 4 permissions.allow entries ... this workspace has not
+# been trusted"). The user's four read-only rules for the plugin's own folders are therefore
+# passed again here, in the absolute form EGM's docs use (CHALLENGES.md C-11).
+PLUGIN_READ_RULES = [f"Read(/{Path.home().as_posix()}/.claude/plugins/cache/egm/egm/*/{folder}/**)"
+                     for folder in ("agents", "docs", "resources", "skills")]
 FLAGS = ["--output-format", "json", "--permission-mode", "acceptEdits", "--model", MODEL,
          "--effort", EFFORT, "--disallowedTools", "AskUserQuestion",
-         "--allowedTools", "Bash(git config *)", "Bash(git log *)", "Bash(git diff *)",
-         "Bash(git status *)", "Bash(git show *)", "Bash(ls *)"]
+         "--allowedTools", *PLUGIN_READ_RULES, "Bash(git config *)", "Bash(git log *)",
+         "Bash(git diff *)", "Bash(git status *)", "Bash(git show *)", "Bash(ls *)"]
 
 
 def find_claude():
@@ -112,6 +120,7 @@ def append_entry(label, kind, meta, input_text, input_from, output_text, output_
         if raw is not None:
             RUNS.mkdir(exist_ok=True)
             (RUNS / f"{entry_id}.json").write_text(scrub(json.dumps(raw, indent=2)), encoding="utf-8")
+        qa.write_qa()
     return entry_id
 
 
@@ -133,8 +142,10 @@ def cmd_run(args):
     session = raw.get("session_id") or args.resume or "?"
     cost = raw.get("total_cost_usd")
     usage = raw.get("usage") or {}
+    answered = qa.previous_entry(args.resume) if args.resume else None
     meta = [
         ("Session", f"`{session}` ({'resumed' if args.resume else 'new'})"),
+        *([("Answers", f"the question at the end of {answered} (see [QA.md](QA.md))")] if answered else []),
         ("Took", f"{elapsed / 60:.1f} min · {raw.get('num_turns', '?')} model turns"
                  + (f" · est. ${cost:.2f}" if isinstance(cost, (int, float)) else "")
                  + (f" · output tokens {usage.get('output_tokens'):,}" if isinstance(usage.get("output_tokens"), int) else "")),

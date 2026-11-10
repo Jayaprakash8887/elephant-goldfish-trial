@@ -140,14 +140,15 @@ def prompt_event(text, attached):
 
 def parse_file(path, owner):
     """Parse one transcript. `owner` is "main" or the agent id that wrote it."""
-    info = {"events": [], "usage": {}, "stamps": [], "version": None, "spawned": [],
-            "reads": [], "tools": Counter()}
+    info = {"events": [], "usage": {}, "stamps": [], "version": None, "entrypoint": None,
+            "spawned": [], "reads": [], "tools": Counter()}
     pending = {}
     for row in read_jsonl(path):
         ts = parse_ts(row.get("timestamp"))
         if ts:
             info["stamps"].append(ts)
         info["version"] = info["version"] or row.get("version")
+        info["entrypoint"] = info["entrypoint"] or row.get("entrypoint")
         kind = row.get("type")
         msg = as_dict(row.get("message"))
         if kind == "assistant":
@@ -209,7 +210,8 @@ def parse_file(path, owner):
                     text = short(payload["q"], 120) + (f" → **{short(answer, 80)}**" if answer else outcome)
                     info["events"].append((payload["ts"], "question", text))
             origin = as_dict(row.get("origin"))
-            if origin.get("kind") == "human" or row.get("turnOrigin") == "human":
+            # "human" is a person typing; "sdk" is a prompt sent to a headless (claude -p) session.
+            if origin.get("kind") == "human" or row.get("turnOrigin") in ("human", "sdk"):
                 info["events"].append((ts, *prompt_event(*text_of(content))))
         elif kind == "attachment":
             att = as_dict(row.get("attachment"))
@@ -317,6 +319,7 @@ def render(sessions, dirs):
            "## Sessions", "",
            "| Session | Started | Span | Active | Claude Code | Prompts | Main-thread tokens | Subagents | Subagent tokens |",
            "|---|---|---|---|---|---|---|---|---|"]
+    kinds = {"claude-vscode": "VS Code", "sdk-cli": "headless"}
     for s in sessions:
         times = stamps(s)
         prompts = sum(1 for e in s["main"]["events"] if e[1].startswith(("prompt", "command")))
@@ -324,7 +327,8 @@ def render(sessions, dirs):
         sub_tokens = sum(a.get("tokens") or 0 for a in subs)
         out.append(f"| [`{s['id'][:8]}`](#session-{s['id'][:8]}) | {times[0]:%Y-%m-%d %H:%M} | "
                    f"{fmt_dur((times[-1] - times[0]).total_seconds())} | {fmt_dur(active_seconds(times))} | "
-                   f"{s['main']['version'] or '?'} | {prompts} | {fmt_tokens(usage_total([s['main']]))} | "
+                   f"{s['main']['version'] or '?'} ({kinds.get(s['main']['entrypoint'], s['main']['entrypoint'] or '?')}) | "
+                   f"{prompts} | {fmt_tokens(usage_total([s['main']]))} | "
                    f"{len(subs)} | {sub_tokens:,} |")
     for s in sessions:
         times = stamps(s)
