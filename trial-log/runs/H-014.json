@@ -1,0 +1,102 @@
+{
+  "duration_api_ms": 481467,
+  "stop_reason": "end_turn",
+  "session_id": "02eb6e8f-75ce-4bca-bef2-98c5fc29ddf1",
+  "total_cost_usd": 2.3185674,
+  "usage": {
+    "input_tokens": 4,
+    "cache_creation_input_tokens": 6959,
+    "cache_read_input_tokens": 274373,
+    "output_tokens": 3834,
+    "output_tokens_details": {
+      "thinking_tokens": 942
+    },
+    "server_tool_use": {
+      "web_search_requests": 0,
+      "web_fetch_requests": 0
+    },
+    "service_tier": "standard",
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 6959,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "inference_geo": "global",
+    "iterations": [
+      {
+        "input_tokens": 2,
+        "output_tokens": 959,
+        "cache_read_input_tokens": 138082,
+        "cache_creation_input_tokens": 5168,
+        "cache_creation": {
+          "ephemeral_5m_input_tokens": 0,
+          "ephemeral_1h_input_tokens": 5168
+        },
+        "type": "message"
+      }
+    ],
+    "speed": "standard",
+    "fallback_credit": null
+  },
+  "modelUsage": {
+    "claude-opus-5-5": {
+      "inputTokens": 34,
+      "outputTokens": 49845,
+      "thinkingTokens": 20547,
+      "cacheReadInputTokens": 1418857,
+      "cacheCreationInputTokens": 129720,
+      "cacheCreationEphemeral5mInputTokens": 0,
+      "cacheCreationEphemeral1hInputTokens": 129720,
+      "webSearchRequests": 0,
+      "costUSD": 2.3185674,
+      "contextWindow": 1000000,
+      "maxOutputTokens": 128000,
+      "canonicalModel": "claude-opus-5-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  },
+  "permission_denials": [],
+  "terminal_reason": "completed",
+  "fast_mode_state": "off",
+  "fast_mode_disabled_reason": "sdk_opt_in_required",
+  "subagent_stats": {
+    "spawned": 0,
+    "requested": {
+      "background": 0,
+      "foreground": 0,
+      "unset": 0
+    },
+    "started_in_background": 0,
+    "max_depth": 0,
+    "spawned_by_subagents": 0,
+    "completed": 0,
+    "failed": 0,
+    "killed": {
+      "parent": 0,
+      "user": 0,
+      "system": 0
+    },
+    "refused": {
+      "depth_limit": 0,
+      "concurrency_limit": 0,
+      "budget": 0
+    },
+    "by_type": {}
+  },
+  "safety_stops": 0,
+  "is_error": false,
+  "num_turns": 4,
+  "subtype": "success",
+  "api_error_status": null,
+  "result": "I've finished the Technical Plan in [design_draft.md](egm/admin-ui/design_draft.md). Both gates are written in, and the exit-check table you asked for is added.\n\n**What changed:**\n- **TP-2 is recorded.** The browser has no mock mode, no worker and no mock server. The scripts are the PRD's five plus `e2e`. The development-environment table now says screens are built test-first until the service runs.\n- **New table: \"How each milestone exit check is shown\".** Every part of the F1\u2013F5 exit checks is now tied to a named Vitest file under `npm run test:ci`, a Playwright CUJ under `npm run e2e`, or both. Where a check has no real-stack run, the table says so and why.\n- **CUJ 3 got one extra step.** It now grants a `DETAIL` menu without its parent and checks the server's warning. Otherwise the F2 warning would only ever be checked against MSW's version of the warning shape (AS-REQ-16).\n\n**Weak points you're approving with this section:**\n1. **Four checks are proven against MSW only:**\n   - the 403 shown inline (F-04)\n   - the 502 on user create (F4)\n   - the menus catalog (F5)\n   - the `ApiError` mapping\n\n   For the first two, the mocks are only as good as the guessed shapes, and those shapes stay marked pending until the admin-service contract is approved. A mismatch there would only appear in shared environments.\n2. **The sync state lasts only for the browser session.** Until AS-REQ-10 is answered, an admin who reloads after a failed sync sees \"unknown\", not \"sync failed\". The plan names this; it doesn't fix it.\n3. **Every `npm run e2e` run adds data to the local stack.** Each run adds users and roles, which can't be deleted. AS-REQ-24's reset is the only cleanup. Until M0 defines it, the local database keeps growing.\n4. **The production build fails without `VITE_KEYCLOAK_REALM`.** That's deliberate (C-02), but it means a CI job or Jenkins build must always pass a realm, even one that only checks compilation. Without it the build stops before it compiles anything.\n\nDrafted Technical Plan in `design_draft.md`. Please review. How would you like to proceed?\n\n1. Approve Technical Plan and proceed to next section\n2. Request revisions to Technical Plan (via inline comments or write-in)",
+  "ttft_ms": 8469,
+  "type": "result",
+  "duration_ms": 36751,
+  "uuid": "3a0e82bd-75f9-44cd-90d9-4c311a88d24f",
+  "ttft_stream_ms": 1357,
+  "time_to_request_ms": 396,
+  "first_content_frame_ms": 1358,
+  "queued_turn_count": 0,
+  "result_index": 0,
+  "credential_expires_at": "2026-11-25T12:02:27.741Z"
+}

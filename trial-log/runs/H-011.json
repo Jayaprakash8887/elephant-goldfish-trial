@@ -1,0 +1,102 @@
+{
+  "duration_api_ms": 406261,
+  "stop_reason": "end_turn",
+  "session_id": "02eb6e8f-75ce-4bca-bef2-98c5fc29ddf1",
+  "total_cost_usd": 1.9451231999999998,
+  "usage": {
+    "input_tokens": 6,
+    "cache_creation_input_tokens": 23012,
+    "cache_read_input_tokens": 326908,
+    "output_tokens": 20274,
+    "output_tokens_details": {
+      "thinking_tokens": 8892
+    },
+    "server_tool_use": {
+      "web_search_requests": 0,
+      "web_fetch_requests": 0
+    },
+    "service_tier": "standard",
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 23012,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "inference_geo": "global",
+    "iterations": [
+      {
+        "input_tokens": 2,
+        "output_tokens": 1448,
+        "cache_read_input_tokens": 112938,
+        "cache_creation_input_tokens": 16226,
+        "cache_creation": {
+          "ephemeral_5m_input_tokens": 0,
+          "ephemeral_1h_input_tokens": 16226
+        },
+        "type": "message"
+      }
+    ],
+    "speed": "standard",
+    "fallback_credit": null
+  },
+  "modelUsage": {
+    "claude-opus-5-5": {
+      "inputTokens": 26,
+      "outputTokens": 42158,
+      "thinkingTokens": 18095,
+      "cacheReadInputTokens": 883936,
+      "cacheCreationInputTokens": 115634,
+      "cacheCreationEphemeral5mInputTokens": 0,
+      "cacheCreationEphemeral1hInputTokens": 115634,
+      "webSearchRequests": 0,
+      "costUSD": 1.9451231999999998,
+      "contextWindow": 1000000,
+      "maxOutputTokens": 128000,
+      "canonicalModel": "claude-opus-5-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  },
+  "permission_denials": [],
+  "terminal_reason": "completed",
+  "fast_mode_state": "off",
+  "fast_mode_disabled_reason": "sdk_opt_in_required",
+  "subagent_stats": {
+    "spawned": 0,
+    "requested": {
+      "background": 0,
+      "foreground": 0,
+      "unset": 0
+    },
+    "started_in_background": 0,
+    "max_depth": 0,
+    "spawned_by_subagents": 0,
+    "completed": 0,
+    "failed": 0,
+    "killed": {
+      "parent": 0,
+      "user": 0,
+      "system": 0
+    },
+    "refused": {
+      "depth_limit": 0,
+      "concurrency_limit": 0,
+      "budget": 0
+    },
+    "by_type": {}
+  },
+  "safety_stops": 0,
+  "is_error": false,
+  "num_turns": 6,
+  "subtype": "success",
+  "api_error_status": null,
+  "result": "I've added the Technical Plan to [design_draft.md](egm/admin-ui/design_draft.md), with two gaps marked **TP-1** and **TP-2** that need your decisions. I'll ask about them one at a time, then put the whole section to you for approval.\n\n**Main points in the plan:**\n- **Layer rules are enforced by lint.** `npm run lint` fails if a page imports `api/`, a component imports `hooks/` or `api/`, or any production file imports `msw` or Playwright.\n- **One contract module, `src/api/contract.ts`.** It holds every request and response shape, and each placeholder type carries a `PENDING AS-REQ-nn` marker. On a 401 the client refreshes the token, retries once, then sends the user back to sign in. Two error codes the console makes itself, `CLIENT_NETWORK_ERROR` and `CLIENT_UNEXPECTED_RESPONSE`, are kept apart from the contract's codes by their prefix.\n- **A missing `VITE_KEYCLOAK_REALM` fails early.** It stops both the production build and start-up, with a screen that names the missing variable.\n- **After a 502 on user create, the form stays locked.** The submit button is disabled for the rest of that page visit, so the admin can't create a second Keycloak account.\n- **The Permissions tab's sync state is lost on reload.** It is kept in the query cache, so it lasts through tab and page changes but not a page reload, until AS-REQ-10 gives it a server field.\n- **Caddy forwards `/admin/v1/*` to the gateway only.** The address comes from a runtime `GATEWAY_UPSTREAM` variable.\n\n**Gate TP-1: how do unit and component tests get a signed-in state?** The console has no bypass flag and no static token, so tests can't sign in for real. The options:\n\n1. **Swap the auth module in tests.** Vitest replaces `src/auth/keycloak.ts` (`vi.mock`) with a fake that gives a fixed token and profile.\n   - **Gain:** no test-only code in production, and no extra abstraction.\n   - **Cost:** component tests never run the real start-up path, so `keycloak.ts` needs its own tests with `keycloak-js` mocked.\n   - **Fails when:** the module's exports change and the fake isn't updated. `vi.mock` doesn't type-check the fake against the real module unless the fake is typed explicitly.\n2. **Pass in the auth client.** `AuthProvider` and `client.ts` take an `AuthClient` interface (`getToken`, `refreshToken`, `login`, `logout`, `profile`). `main.tsx` passes the real `keycloak-js` client, and a test render helper passes a fake.\n   - **Gain:** the fake is checked against the interface at compile time, and there is no module mocking.\n   - **Cost:** the interface becomes part of production code, which is one more layer, and `client.ts` needs the auth client handed to it at start-up.\n   - **Fails when:** someone wires a fake into `main.tsx`. Only a lint rule or review stops that, so the \"no bypass\" guarantee then depends on that rule.\n3. **Mock `keycloak-js` itself.** Tests replace the `keycloak-js` package with a fake Keycloak class, so the real `initAuth()`, refresh interval and 401 handling all run.\n   - **Gain:** the tests exercise the most real code, including F-01's refresh timing with fake timers.\n   - **Cost:** the tests depend on `keycloak-js`'s API details (`init`, `updateToken`, `token`, `login`). Every render goes through async start-up, so tests are slower and more complex.\n   - **Fails when:** a `keycloak-js` upgrade changes behaviour that the fake doesn't copy. The tests keep passing against a fake that no longer matches the real library.\n\nWhich test seam should the plan use?\n\n1. Swap the auth module in tests\n2. Pass in the auth client\n3. Mock `keycloak-js` itself",
+  "ttft_ms": 9254,
+  "type": "result",
+  "duration_ms": 194708,
+  "uuid": "5c4946b8-1bfe-4214-a696-a342217ca08b",
+  "ttft_stream_ms": 1297,
+  "time_to_request_ms": 419,
+  "first_content_frame_ms": 1297,
+  "queued_turn_count": 0,
+  "result_index": 0,
+  "credential_expires_at": "2026-11-25T12:02:27.741Z"
+}

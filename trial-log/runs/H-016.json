@@ -1,0 +1,102 @@
+{
+  "duration_api_ms": 541760,
+  "stop_reason": "end_turn",
+  "session_id": "d8132724-9fe1-46b3-8537-799ad75e43bb",
+  "total_cost_usd": 2.717799399999999,
+  "usage": {
+    "input_tokens": 4,
+    "cache_creation_input_tokens": 6274,
+    "cache_read_input_tokens": 312234,
+    "output_tokens": 3190,
+    "output_tokens_details": {
+      "thinking_tokens": 939
+    },
+    "server_tool_use": {
+      "web_search_requests": 0,
+      "web_fetch_requests": 0
+    },
+    "service_tier": "standard",
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 6274,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "inference_geo": "global",
+    "iterations": [
+      {
+        "input_tokens": 2,
+        "output_tokens": 1434,
+        "cache_read_input_tokens": 157271,
+        "cache_creation_input_tokens": 3966,
+        "cache_creation": {
+          "ephemeral_5m_input_tokens": 0,
+          "ephemeral_1h_input_tokens": 3966
+        },
+        "type": "message"
+      }
+    ],
+    "speed": "standard",
+    "fallback_credit": null
+  },
+  "modelUsage": {
+    "claude-opus-5-5": {
+      "inputTokens": 44,
+      "outputTokens": 56138,
+      "thinkingTokens": 28800,
+      "cacheReadInputTokens": 2066037,
+      "cacheCreationInputTokens": 147707,
+      "cacheCreationEphemeral5mInputTokens": 0,
+      "cacheCreationEphemeral1hInputTokens": 147707,
+      "webSearchRequests": 0,
+      "costUSD": 2.717799399999999,
+      "contextWindow": 1000000,
+      "maxOutputTokens": 128000,
+      "canonicalModel": "claude-opus-5-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  },
+  "permission_denials": [],
+  "terminal_reason": "completed",
+  "fast_mode_state": "off",
+  "fast_mode_disabled_reason": "sdk_opt_in_required",
+  "subagent_stats": {
+    "spawned": 0,
+    "requested": {
+      "background": 0,
+      "foreground": 0,
+      "unset": 0
+    },
+    "started_in_background": 0,
+    "max_depth": 0,
+    "spawned_by_subagents": 0,
+    "completed": 0,
+    "failed": 0,
+    "killed": {
+      "parent": 0,
+      "user": 0,
+      "system": 0
+    },
+    "refused": {
+      "depth_limit": 0,
+      "concurrency_limit": 0,
+      "budget": 0
+    },
+    "by_type": {}
+  },
+  "safety_stops": 0,
+  "is_error": false,
+  "num_turns": 3,
+  "subtype": "success",
+  "api_error_status": null,
+  "result": "I've recorded OQ-3 as **AD-03** in [design_draft.md](/home/jayaprakashn/Documents/workspace/elephant-goldfish-trial/egm/admin-service/design_draft.md): all 12 menus are seeded and active, the 7 current links come first in today's order, then the three new ones, and no role is granted any menu.\n\n**What this means for testing:** a fresh environment has no role that sees anything in cce-insights-ui. So the S1 check has to create its console roles and grant menus through the API first. No seeded role does that for it. I'll write that into the E2E section.\n\n---\n\n**OQ-4 (answers AS-REQ-07): which user statuses exist, and which changes are allowed?** The inputs disagree:\n- PRD \u00a72 says `INACTIVE` \"is terminal\".\n- B-34 and S5 say re-activating restores access and that role assignments are kept for that.\n- Appendix A lists a third value, `LOCKED`, which no requirement describes.\n\nWhatever you choose, every status other than `ACTIVE` disables the Keycloak account and gets 403 from B-12. Keycloak's disable doesn't revoke tokens already issued, so the flow will also end the user's Keycloak sessions. A request for the status the user already has returns 200 and writes no audit row, because nothing changed.\n\n- **A. Two statuses, `ACTIVE` and `INACTIVE`, either way.**\n  - *How it works:* `PATCH /users/:id/status` accepts `ACTIVE` or `INACTIVE`, and `LOCKED` gets 400. Moving to `INACTIVE` disables the Keycloak account, ends its sessions and keeps `user_roles`. Moving back enables it, and the kept roles apply again.\n  - *Trade-offs:* matches B-34, S5 and F-10's activate/deactivate action. It is the smallest model. PRD \u00a72 (\"terminal\") and Appendix A (`LOCKED`) become DEV-4.\n  - *Fails when:* the team really needs a temporary block that is recorded differently from offboarding. Both would then be `INACTIVE`, and only the audit trail tells them apart.\n- **B. Three statuses, with `INACTIVE` terminal.**\n  - *How it works:*\n    - `ACTIVE` and `LOCKED` can switch either way. `LOCKED` is a temporary block: Keycloak is disabled and sessions are ended.\n    - `ACTIVE` or `LOCKED` can move to `INACTIVE`, which is offboarding. No change out of `INACTIVE` is allowed.\n    - A change that isn't allowed gets 409 `INVALID_STATUS_TRANSITION` *(added)*.\n  - *Trade-offs:* keeps PRD \u00a72's audit-continuity reason and gives `LOCKED` a meaning. B-34 and S5 only partly hold, because \"re-activation\" works from `LOCKED` alone, which is DEV-4. An offboarding done by mistake can't be undone through the API.\n  - *Fails when:* an administrator deactivates someone by mistake, or a person returns. That needs a new account, with a new username and email, because the old row still holds them.\n- **C. Three statuses, every change allowed.**\n  - *How it works:* `ACTIVE`, `INACTIVE` and `LOCKED` can each move to either of the others. Both blocked statuses disable Keycloak and end sessions, and they differ only in label and audit action (`USER_DEACTIVATED` or `USER_LOCKED`).\n  - *Trade-offs:* follows Appendix A and B-34 literally. Two values have exactly the same effect, so the console and operators must learn a difference the system doesn't enforce. PRD \u00a72 (\"terminal\") becomes DEV-4.\n  - *Fails when:* someone assumes `LOCKED` means something the system doesn't do, such as clearing itself after a time or only blocking sign-in.\n\nWhich option should the design use for OQ-4?\n- A: two statuses, either way\n- B: three statuses, `INACTIVE` terminal\n- C: three statuses, every change allowed",
+  "ttft_ms": 10122,
+  "type": "result",
+  "duration_ms": 32067,
+  "uuid": "4b6b922f-9557-4fbf-8611-c6af2f81042b",
+  "ttft_stream_ms": 1503,
+  "time_to_request_ms": 514,
+  "first_content_frame_ms": 1504,
+  "queued_turn_count": 0,
+  "result_index": 0,
+  "credential_expires_at": "2026-11-25T12:02:27.741Z"
+}

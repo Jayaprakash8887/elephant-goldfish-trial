@@ -1,0 +1,102 @@
+{
+  "duration_api_ms": 510608,
+  "stop_reason": "end_turn",
+  "session_id": "d8132724-9fe1-46b3-8537-799ad75e43bb",
+  "total_cost_usd": 2.5413445999999995,
+  "usage": {
+    "input_tokens": 6,
+    "cache_creation_input_tokens": 8740,
+    "cache_read_input_tokens": 449465,
+    "output_tokens": 5350,
+    "output_tokens_details": {
+      "thinking_tokens": 1873
+    },
+    "server_tool_use": {
+      "web_search_requests": 0,
+      "web_fetch_requests": 0
+    },
+    "service_tier": "standard",
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 8740,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "inference_geo": "global",
+    "iterations": [
+      {
+        "input_tokens": 2,
+        "output_tokens": 1595,
+        "cache_read_input_tokens": 154464,
+        "cache_creation_input_tokens": 499,
+        "cache_creation": {
+          "ephemeral_5m_input_tokens": 0,
+          "ephemeral_1h_input_tokens": 499
+        },
+        "type": "message"
+      }
+    ],
+    "speed": "standard",
+    "fallback_credit": null
+  },
+  "modelUsage": {
+    "claude-opus-5-5": {
+      "inputTokens": 40,
+      "outputTokens": 52948,
+      "thinkingTokens": 27861,
+      "cacheReadInputTokens": 1753803,
+      "cacheCreationInputTokens": 141433,
+      "cacheCreationEphemeral5mInputTokens": 0,
+      "cacheCreationEphemeral1hInputTokens": 141433,
+      "webSearchRequests": 0,
+      "costUSD": 2.5413445999999995,
+      "contextWindow": 1000000,
+      "maxOutputTokens": 128000,
+      "canonicalModel": "claude-opus-5-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  },
+  "permission_denials": [],
+  "terminal_reason": "completed",
+  "fast_mode_state": "off",
+  "fast_mode_disabled_reason": "sdk_opt_in_required",
+  "subagent_stats": {
+    "spawned": 0,
+    "requested": {
+      "background": 0,
+      "foreground": 0,
+      "unset": 0
+    },
+    "started_in_background": 0,
+    "max_depth": 0,
+    "spawned_by_subagents": 0,
+    "completed": 0,
+    "failed": 0,
+    "killed": {
+      "parent": 0,
+      "user": 0,
+      "system": 0
+    },
+    "refused": {
+      "depth_limit": 0,
+      "concurrency_limit": 0,
+      "budget": 0
+    },
+    "by_type": {}
+  },
+  "safety_stops": 0,
+  "is_error": false,
+  "num_turns": 6,
+  "subtype": "success",
+  "api_error_status": null,
+  "result": "I've recorded OQ-2 as **AD-02**, with your two additions, in [design_draft.md](/home/jayaprakashn/Documents/workspace/elephant-goldfish-trial/egm/admin-service/design_draft.md):\n- **Shape check:** it also covers the unique constraint and the two indexes.\n- **Unowned rows:** rows no role owns stay where they are, and a read-only review query goes into the bootstrap steps. The risk is now **GW-5** under the gateway owners' questions.\n\n**Something option A needed that neither of us had raised:** Flyway refuses to migrate a non-empty `public` schema that has no history table. That is exactly the state of an environment where the gateway's script already ran. So AD-02 now also sets `baseline-on-migrate=true` with `baseline-version=0`, which lets V1 and every later migration still run there.\n\n**AS-REQ-23 and AS-REQ-24 are covered:**\n- **AS-REQ-23** (making the sync fail, then succeed, without a restart) is answered by OQ-5. That decision has to give the stand-in a switch the tests can flip while it runs.\n- **AS-REQ-24** is answered in two parts. The test administrator's credentials come from OQ-7. Resetting the local database and realm belongs to M0 (section 9) and needs no decision.\n\n---\n\n**OQ-3: how are the three routes that aren't in the sidebar seeded?** B-02 asks for the 12 cce-insights-ui menus, including `Patients` as its own top-level NAV and the two DETAIL entries. The 12 routes are:\n- **7 sidebar links:** Dashboard, Facilities, Compliance, Deviations, Patients, Events, Ingestion.\n- **2 DETAIL routes:** `/compliance/protocols/:id` under Compliance, and `/compliance/patients/:id` under Patients.\n- **3 URL-only pages:** Practitioners `/practitioners`, Intelligence `/intelligence` and Exports `/exports` ([insights-ui architecture \u00a74, \u00a77](../../context/cce-insights-ui/docs/architecture-overview.md)).\n\nMenus are soft control (PRD \u00a74), so a wrong choice here is cosmetic, but it fixes the seed data and how `/me/menus` is read. Seeding only 9 menus isn't offered, because B-02 says 12.\n\n- **A. Seed all three as `NAV` with `is_active = false`.**\n  - *How it works:* they are in the catalog, but `/me/menus` leaves out inactive rows (B-21), so today's 7-link sidebar is unchanged. An administrator can activate one later to add it to the sidebar.\n  - *Trade-offs:* no new type and no deviation. \"Inactive\" now means two things: \"retired\" and \"routed but hidden\". Granting one of them to a role does nothing until it is activated.\n  - *Fails when:* cce-insights-ui later guards its routes with `/me/menus`. These three pages then become unreachable for everyone, though today anyone can open them by URL.\n- **B. Seed all three as active `NAV`.**\n  - *How it works:* they behave like the other seven. Any role granted them sees them in the sidebar.\n  - *Trade-offs:* the simplest model, with no new type and no special case. A role granted them gets a sidebar of up to 10 links, which differs from today's console. The product decision to hide them from the sidebar is lost.\n  - *Fails when:* hiding those pages from the sidebar was deliberate. An administrator who grants them for access reasons then changes the visible navigation without meaning to.\n- **C. Add a third menu type, `ROUTE`.**\n  - *How it works:* a `ROUTE` is a page a role may be granted that never shows in the sidebar. `/me/menus` returns `ROUTE` items at the top level with their type, so a console can grant access to the route without drawing a link.\n  - *Trade-offs:* matches today's behaviour exactly and keeps the three pages grantable per role. Departs from PRD \u00a74, which defines only `NAV` and `DETAIL`, so it is recorded as DEV-4. Every console must filter by `type` when it draws its sidebar, and the admin console's Menus catalog has to show a third type.\n  - *Fails when:* cce-insights-ui draws every top-level item as a sidebar link without filtering by type. The three pages then appear in the sidebar anyway.\n\nWhich option should the design use for OQ-3?\n- A: seed as inactive `NAV`\n- B: seed as active `NAV`\n- C: add a `ROUTE` type",
+  "ttft_ms": 18223,
+  "type": "result",
+  "duration_ms": 53174,
+  "uuid": "d66e52ba-6583-4acd-9740-038525507634",
+  "ttft_stream_ms": 1350,
+  "time_to_request_ms": 464,
+  "first_content_frame_ms": 1351,
+  "queued_turn_count": 0,
+  "result_index": 0,
+  "credential_expires_at": "2026-11-25T12:02:27.741Z"
+}

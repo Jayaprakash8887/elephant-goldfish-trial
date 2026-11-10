@@ -1,0 +1,102 @@
+{
+  "duration_api_ms": 445542,
+  "stop_reason": "end_turn",
+  "session_id": "02eb6e8f-75ce-4bca-bef2-98c5fc29ddf1",
+  "total_cost_usd": 2.1313248,
+  "usage": {
+    "input_tokens": 4,
+    "cache_creation_input_tokens": 7127,
+    "cache_read_input_tokens": 260548,
+    "output_tokens": 3853,
+    "output_tokens_details": {
+      "thinking_tokens": 1510
+    },
+    "server_tool_use": {
+      "web_search_requests": 0,
+      "web_fetch_requests": 0
+    },
+    "service_tier": "standard",
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 7127,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "inference_geo": "global",
+    "iterations": [
+      {
+        "input_tokens": 2,
+        "output_tokens": 1158,
+        "cache_read_input_tokens": 131384,
+        "cache_creation_input_tokens": 4907,
+        "cache_creation": {
+          "ephemeral_5m_input_tokens": 0,
+          "ephemeral_1h_input_tokens": 4907
+        },
+        "type": "message"
+      }
+    ],
+    "speed": "standard",
+    "fallback_credit": null
+  },
+  "modelUsage": {
+    "claude-opus-5-5": {
+      "inputTokens": 30,
+      "outputTokens": 46011,
+      "thinkingTokens": 19605,
+      "cacheReadInputTokens": 1144484,
+      "cacheCreationInputTokens": 122761,
+      "cacheCreationEphemeral5mInputTokens": 0,
+      "cacheCreationEphemeral1hInputTokens": 122761,
+      "webSearchRequests": 0,
+      "costUSD": 2.1313248,
+      "contextWindow": 1000000,
+      "maxOutputTokens": 128000,
+      "canonicalModel": "claude-opus-5-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  },
+  "permission_denials": [],
+  "terminal_reason": "completed",
+  "fast_mode_state": "off",
+  "fast_mode_disabled_reason": "sdk_opt_in_required",
+  "subagent_stats": {
+    "spawned": 0,
+    "requested": {
+      "background": 0,
+      "foreground": 0,
+      "unset": 0
+    },
+    "started_in_background": 0,
+    "max_depth": 0,
+    "spawned_by_subagents": 0,
+    "completed": 0,
+    "failed": 0,
+    "killed": {
+      "parent": 0,
+      "user": 0,
+      "system": 0
+    },
+    "refused": {
+      "depth_limit": 0,
+      "concurrency_limit": 0,
+      "budget": 0
+    },
+    "by_type": {}
+  },
+  "safety_stops": 0,
+  "is_error": false,
+  "num_turns": 3,
+  "subtype": "success",
+  "api_error_status": null,
+  "result": "I've written TP-1 into the plan as you decided it, with both of your conditions. I split the 401 path into two parts, because the retry logic lives in `client.ts` and not in the auth module:\n- **`keycloak.test.ts`** covers `refreshToken()`: it forces a token refresh, and if the refresh fails it calls `login()`.\n- **`client.test.ts`** covers the retry, against the typed fake: one 401 followed by a 200 refreshes once and returns the data; two 401s in a row call `login`.\n\nThe fake lives in `src/test/fakeAuth.ts` with `satisfies typeof import('../auth/keycloak')`, so `tsc -b` inside `npm run build` catches it if the fake drifts from the real module.\n\n**Gate TP-2: how is the console developed in a browser before the service exists?** The PRD's milestone F1 exit check, \"header shows /me\", needs something answering `/admin/v1/me` in a browser. Keycloak from M0 can run on its own. The open question is what answers the API calls. The options:\n\n1. **MSW only in tests, no mock in the browser.** Before the service runs, screens are built test-first and are seen only through Testing Library.\n   - **Gain:** the browser bundle has no mock code path and no mode, and no script beyond the PRD's five.\n   - **Cost:** nobody can click through a screen or demo F1\u2013F5 in a browser until the matching backend milestones land. Layout and usability problems surface late.\n   - **Fails when:** the backend track slips. The frontend milestones can then pass their tests but not their demos.\n2. **MSW running inside the browser, in a separate dev mode.** A script `npm run dev:mock` runs Vite with `--mode mock`. `main.tsx` starts the MSW browser worker only when `import.meta.env.MODE === 'mock'`, after `initAuth()`, so the real Keycloak login is still required. The worker script is served only in mock mode and isn't copied into `dist/`. A build check fails if `msw` shows up in the production bundle.\n   - **Gain:** every screen can be clicked through and demoed, using the same handlers and fixtures as the tests.\n   - **Cost:** a sixth script beyond the PRD's list, and a mode branch in `main.tsx`. `/me` returns a fixed mock user whatever the token says.\n   - **Fails when:** the mode guard or the build check is broken. Mock code could then ship in an image, or someone could take mock behaviour for real behaviour.\n3. **A separate mock server on port 8085.** A small Node process (`npm run mock-api`) serves the same MSW handlers over HTTP on 8085, and the normal Vite proxy forwards to it as if it were the service.\n   - **Gain:** the console has no mock code or mode at all, the real proxy path is used, and switching to the real service means starting a different process.\n   - **Cost:** an extra dependency (an MSW-to-HTTP adapter), a second process to run, and a script beyond the PRD's list.\n   - **Fails when:** the mock and the real service are both started, since only one can hold 8085. Or the adapter handles some request details differently from MSW in Node, so the browser and the tests see slightly different mocks.\n\nWhich approach should the plan use for development before the service exists?\n\n1. MSW only in tests\n2. MSW in the browser via `npm run dev:mock`\n3. Separate mock server on port 8085",
+  "ttft_ms": 17809,
+  "type": "result",
+  "duration_ms": 40287,
+  "uuid": "e4386fca-42e3-4038-90d5-407066da2e43",
+  "ttft_stream_ms": 1570,
+  "time_to_request_ms": 564,
+  "first_content_frame_ms": 1571,
+  "queued_turn_count": 0,
+  "result_index": 0,
+  "credential_expires_at": "2026-11-25T12:02:27.741Z"
+}
