@@ -1,2 +1,16 @@
 GET /admin/v1/health
 GET /admin/v1/me
+GET /admin/v1/roles
+POST /admin/v1/roles
+GET /admin/v1/roles/{id}
+PUT /admin/v1/roles/{id}
+DELETE /admin/v1/roles/{id}
+GET /admin/v1/roles/{id}/menus
+PUT /admin/v1/roles/{id}/menus
+GET /admin/v1/roles/{id}/permissions
+PUT /admin/v1/roles/{id}/permissions
+POST /admin/v1/roles/{id}/sync
+GET /admin/v1/menus
+POST /admin/v1/menus
+PUT /admin/v1/menus/{id}
+DELETE /admin/v1/menus/{id}

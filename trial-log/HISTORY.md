@@ -2864,3 +2864,24 @@ DESIGN-GAPs (8): resetPage() + filter write overwrite each other in React Router
 Orchestrator re-ran the check: exit 0.
 ````
 
+### H-056 · 2026-11-10 17:07 UTC · orchestrator action · Implement admin-service phase 5 (roles, menus, permissions, sync)
+
+- **Actor:** Orchestrator -> fresh implementation agent
+
+**Input** (what was asked or run):
+
+````text
+Fresh agent, same brief. Scope: Phase 5, roles, menus, permissions and sync (B-40 to B-44, B-50 for these).
+````
+
+**Output** (what came back):
+
+````markdown
+Agent report (condensed): Role and Menu controllers (14 endpoints), DTOs, ImplicitPermissions, PermissionRowRules, Role/RolePermission/RoleMenu/Menu services; 71 new tests (203 total).
+Exit check passed: ./mvnw verify 203 tests; live: POST /roles 201 SYNCED and tagged realm role in Keycloak; PUT menus 200 with DETAIL_WITHOUT_PARENT warning; stand-in fail -> PUT permissions 502 ROLE_PERMISSIONS_SAVE with completedSteps [PERMISSIONS_SAVED]; ok -> POST sync 200; audit rows exactly ROLE_CREATED, ROLE_SYNC_REQUESTED, ROLE_MENUS_UPDATED, ROLE_PERMISSIONS_UPDATED, ROLE_SYNC_REQUESTED FAILED, ROLE_SYNC_REQUESTED SUCCESS.
+DESIGN-GAPs (4): (1) contract requires 502 on Keycloak failure in role create/delete (DEV-8) but the resolved operations table removed ROLE_CREATE/ROLE_DELETE and 4.5 lists no 502 for them; reintroduced both names; console does not know them. (2) ROLE_CREATED after-state property name for implicit rows. (3) order of menuIds. (4) icon length.
+Hidden bug fixed: Hibernate dirty check re-read audit JSON (LongNode vs IntNode) and issued UPDATE on append-only audit_log; AuditLogEntity marked @Immutable (Phase 2 file).
+Note for Phase 6: User responses built in memory may carry 9 fractional digits (contract says at most 6).
+Orchestrator re-ran ./mvnw verify: exit 0.
+````
+

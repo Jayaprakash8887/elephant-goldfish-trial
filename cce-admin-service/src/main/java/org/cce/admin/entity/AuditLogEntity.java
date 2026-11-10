@@ -10,11 +10,19 @@ import jakarta.persistence.PrePersist;
 import jakarta.persistence.Table;
 import java.time.Instant;
 import java.util.UUID;
+import org.hibernate.annotations.Immutable;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
-/** The append-only {@code audit_log} table (sections 6 and 8). */
+/**
+ * The append-only {@code audit_log} table (sections 6 and 8). {@code @Immutable} keeps Hibernate from
+ * ever issuing an {@code UPDATE}: its dirty check compares the JSON columns with a re-read copy, in
+ * which a {@code long} written as a {@code LongNode} comes back as an {@code IntNode}, so without it
+ * a row holding a long (such as {@code Role.userCount}) would be "updated" at commit and the
+ * append-only trigger would fail the transaction.
+ */
 @Entity
+@Immutable
 @Table(name = "audit_log")
 public class AuditLogEntity {
 
