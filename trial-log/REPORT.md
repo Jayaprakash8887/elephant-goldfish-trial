@@ -1,6 +1,6 @@
 # Can the EGM plugin carry full feature development? A trial on the CCE v2 Admin Module
 
-**Trial date:** 2026-11-10, from 12:16 to about 18:30 UTC.
+**Trial date:** 2026-11-10, from 12:16 to 18:14 UTC.
 
 **Plugin:** Google's Elephant-Goldfish Model (EGM) 0.1.1, used in Claude Code 2.1.319.
 
@@ -81,7 +81,7 @@ Each step is a git tag. To see a file as it was at the end of a step, run
 | 02 Drafting | The two designs were drafted in parallel from the PRD, in 47 minutes and 28 EGM turns. There were about 30 option gates and section approvals, and 2 contradiction stops. | `egm-draft` | [JOURNAL](JOURNAL.md#step-02--both-designs-drafted-fresh-from-the-prd-egm-draft), [QA](QA.md), H-006 to H-033 |
 | 03 Review and resolve | Round 1 was a full five-stage review of each design: 145 findings merged into 33 actions for the service, and 30 for the console. Round 2 re-ran Stage 9 on each. Each round's findings were then resolved in the original drafting session. | `egm-review`, `egm-resolve` | [JOURNAL](JOURNAL.md#step-03--goldfish-review-and-resolution-egm-review-egm-resolve-two-rounds), `egm/*/`, H-034 to H-046 |
 | 04 Implementation | 15 fresh agents built one phase each: 8 for the backend and 7 for the console. Each agent got only the design and its phase. The orchestrator re-ran every exit check and committed after each phase. | none (EGM has no implementation step) | [JOURNAL](JOURNAL.md#step-04--implementation-by-fresh-agents-one-phase-at-a-time), H-047 to H-061 |
-| 05 Drift report | EGM compared the code with the designs. | `egm-drift-report` | `egm/drift/`, H-062 |
+| 05 Drift report | EGM read the code against both designs, section by section: 82 marked gaps and about 30 unmarked differences, in 11 minutes for $11. | `egm-drift-report` | [JOURNAL](JOURNAL.md#step-05--drift-report-egm-drift-report), [report](../egm/drift/2026-11-10_DRIFT_REPORT.md), H-062 |
 
 How each turn was recorded:
 
@@ -150,6 +150,28 @@ identifiers. These are the ones that mattered:
 Every one of these was found by compiling, running or testing the code. None of them broke the
 build. The agents resolved each with the smallest change and reported it.
 
+### Found by the drift report, after implementation
+
+The drift report listed all 82 `DESIGN-GAP:` markers, each with its design section and
+`file:line`. It also found about 30 differences that no marker recorded. None of them breaks a
+test, but four are worth fixing:
+
+- **Lost edits in the console:** a failed background refetch unmounts Role detail, the Menus tab
+  and the Menus form, so unsaved edits are lost. Two other screens already handle this. The
+  reviewer inferred it from TanStack Query 5's documented behaviour; it was not observed.
+- **Retry everywhere:** the console shows Retry on every failed query, including 401 and 403. The
+  design allows it only for network and unexpected errors.
+- **Case-insensitive linking:** the service links an existing Keycloak account by username and
+  email ignoring case, where the design says "exact".
+- **A brittle migration check:** migration V2 fails if the gateway team ever adds a column to
+  `api_permissions`.
+
+Its other findings were a dropped exception cause, a configuration error that does not name the
+missing variable, two out-of-date markers, and behaviour that the code has and the design never
+describes. This is the only step that compares code and design line by line. That makes it the
+input for the next design update. The tests cannot provide this, because they check behaviour,
+not agreement with the design.
+
 ## 5. Challenges and how they were resolved
 
 The full list is in [CHALLENGES.md](CHALLENGES.md). These are the ones a team will meet:
@@ -164,6 +186,7 @@ The full list is in [CHALLENGES.md](CHALLENGES.md). These are the ones a team wi
 | C-13 | A headless Elephant cannot look up current versions. | The author checked the versions and recorded them in D-05. |
 | C-16, C-17 | 145 findings, stages that disagree on direction, and fixes that create new findings. | Follow the Stage 8 reviewer's triage, run one round of Stage 9, then let the build checks take over. |
 | C-18 | The plan's 5-hour usage limit stopped two sessions mid-turn. | Each session was resumed with a check-and-finish prompt. Commit after every turn. |
+| C-19 | A drift reviewer's search read the git-ignored local `.env`. | No secret was copied. Deny reads of `.env` files before running EGM. |
 
 ## 6. Cost and time
 
@@ -173,7 +196,8 @@ The full list is in [CHALLENGES.md](CHALLENGES.md). These are the ones a team wi
 | Drafting, 2 designs | 47 min | $118 |
 | Reviews and resolves, 2 rounds | about 2 h 20 min, including about 40 min stopped at the usage limit | $189 |
 | Implementation, 15 agents | about 1 h 55 min | about 3.3 M subagent tokens, which is not priced in the run records |
-| **EGM turns in total** | | **$309, over 44 headless turns** |
+| Drift report | 11 min | $11 |
+| **EGM turns in total** | | **$320, over 45 headless turns** |
 
 Notes on the figures:
 
@@ -203,21 +227,24 @@ Notes on the figures:
    - Give the Elephant a list of verified versions.
 6. **Implement with fresh agents, one phase at a time.** Have them mark `DESIGN-GAP`s instead of
    guessing, re-run each exit check yourself, and commit after every phase. Then run the drift
-   report and update the designs with what the code taught you.
-7. **Plan around the usage limit.** Run fewer sessions in parallel, or use API billing for long
+   report and update the designs with what the code taught you. The drift report found four
+   real differences here that every test had passed.
+7. **Deny reads of local secret files.** EGM's reviewers can search the whole folder, and one of
+   them read a git-ignored `.env` here (C-19). Add a `Read(**/.env)` deny rule first.
+8. **Plan around the usage limit.** Run fewer sessions in parallel, or use API billing for long
    unattended runs. Never trust a status line written in a turn that was interrupted.
 
 ## 8. Where the evidence is
 
 - **[JOURNAL.md](JOURNAL.md):** one entry per step.
-- **[HISTORY.md](HISTORY.md):** 61 entries with the exact inputs and outputs.
+- **[HISTORY.md](HISTORY.md):** 62 entries with the exact inputs and outputs.
 - **[QA.md](QA.md):** 44 EGM questions with the answers given.
-- **[CHALLENGES.md](CHALLENGES.md):** 18 challenges.
+- **[CHALLENGES.md](CHALLENGES.md):** 19 challenges.
 - **[FINDINGS.md](FINDINGS.md):** every finding, by stage and with its ID (E, U, O, R, I).
 - **[timeline.md](timeline.md):** generated from the transcripts.
 - **`egm/admin-service/`, `egm/admin-ui/`:** EGM's stage reports, consolidated reports and
   resolution reports.
-- **`egm/drift/`:** the drift report.
+- **[`egm/drift/2026-11-10_DRIFT_REPORT.md`](../egm/drift/2026-11-10_DRIFT_REPORT.md):** the drift report.
 - **Git tags `step-00` to `step-05`.**
 - **The `DESIGN-GAP:` comments in the code:**
   `grep -rn DESIGN-GAP cce-admin-service/src cce-admin-ui/src`.

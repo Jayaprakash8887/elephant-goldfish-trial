@@ -1,0 +1,109 @@
+{
+  "duration_api_ms": 1074546,
+  "stop_reason": "end_turn",
+  "session_id": "b60e3f70-a26e-4015-8a42-2005137f1faf",
+  "total_cost_usd": 11.220513800000003,
+  "usage": {
+    "input_tokens": 8,
+    "cache_creation_input_tokens": 13895,
+    "cache_read_input_tokens": 256106,
+    "output_tokens": 11165,
+    "output_tokens_details": {
+      "thinking_tokens": 689
+    },
+    "server_tool_use": {
+      "web_search_requests": 0,
+      "web_fetch_requests": 0
+    },
+    "service_tier": "standard",
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 13895,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "inference_geo": "global",
+    "iterations": [
+      {
+        "input_tokens": 2,
+        "output_tokens": 1178,
+        "cache_read_input_tokens": 87081,
+        "cache_creation_input_tokens": 9719,
+        "cache_creation": {
+          "ephemeral_5m_input_tokens": 0,
+          "ephemeral_1h_input_tokens": 9719
+        },
+        "type": "message"
+      }
+    ],
+    "speed": "standard",
+    "fallback_credit": null
+  },
+  "modelUsage": {
+    "claude-opus-5-5": {
+      "inputTokens": 262,
+      "outputTokens": 113582,
+      "cacheReadInputTokens": 23975099,
+      "cacheCreationInputTokens": 779605,
+      "webSearchRequests": 0,
+      "costUSD": 11.220513800000003,
+      "contextWindow": 1000000,
+      "maxOutputTokens": 128000,
+      "thinkingTokens": 57813,
+      "cacheCreationEphemeral5mInputTokens": 694678,
+      "cacheCreationEphemeral1hInputTokens": 84927,
+      "canonicalModel": "claude-opus-5-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  },
+  "permission_denials": [],
+  "terminal_reason": "completed",
+  "fast_mode_state": "off",
+  "fast_mode_disabled_reason": "sdk_opt_in_required",
+  "origin": {
+    "kind": "task-notification",
+    "producer": "session-task",
+    "runId": "0mwb028cs-303d8ed1"
+  },
+  "subagent_stats": {
+    "spawned": 2,
+    "requested": {
+      "background": 0,
+      "foreground": 0,
+      "unset": 2
+    },
+    "started_in_background": 2,
+    "max_depth": 1,
+    "spawned_by_subagents": 0,
+    "completed": 2,
+    "failed": 0,
+    "killed": {
+      "parent": 0,
+      "user": 0,
+      "system": 0
+    },
+    "refused": {
+      "depth_limit": 0,
+      "concurrency_limit": 0,
+      "budget": 0
+    },
+    "by_type": {
+      "general-purpose": 2
+    }
+  },
+  "safety_stops": 0,
+  "is_error": false,
+  "num_turns": 4,
+  "subtype": "success",
+  "api_error_status": null,
+  "result": "I've written the drift report to `egm/drift/2026-11-10_DRIFT_REPORT.md` and changed no other file. Nothing was built or run, so drift that only shows at runtime (the Docker stack, the end-to-end runs) isn't covered.\n\n**Marked gaps.** The 82 `DESIGN-GAP:` comments in tracked files (28 in the service, 54 in the console) are all listed, with the design section and `file:line` for each. One more match is in the git-ignored local `cce-admin-service/.env`, which is a copy of the `.env.example` header, so I counted it once. Most are invented UI texts, labels and names. A few point at places where the design contradicts itself:\n- **Transactions:** \"How to use this plan\" says each database step commits before the next Keycloak call, but section 5 (\"Locks\") keeps one transaction open across the Keycloak calls for flows 5.2 to 5.4. The code follows section 5.\n- **Who builds the create-user request:** UI items 69 and 84 disagree on whether the form or the page builds it.\n- **\"Result is unknown\" text:** UI item 59 and the error-presentation section give different conditions for showing it.\n\n**Unmarked drift.** No major drift on the backend: all endpoints, error codes, audit actions, tables and seed rows match the design. What I found:\n- **Two marker comments are wrong:**\n  - The `gateway-stub/pom.xml` comment says nothing in `.gitignore` covers `dependency-reduced-pom.xml`, but the root `.gitignore` now ignores it.\n  - The `RoleCheckboxList` comment says a role's name \"is not loaded\", but `user.roles` already carries the names. `UserRolesForm` just doesn't pass them on.\n- **Service:**\n  - Linking an existing Keycloak account compares the username and email ignoring case, where the design says \"exact\".\n  - When a Keycloak check fails during role create or delete, the cause exception is dropped and not logged.\n  - Migration V2 fails if the gateway team adds any column to `api_permissions`.\n  - A missing `DATABASE_*` variable fails at startup without naming the variable, though the README says every missing variable is named.\n  - Some behaviour isn't in the design at all: the `/health` token handling, the stand-in gateway's 405, 500 and 404 responses, and an extra role on the test administrator.\n- **Console:**\n  - Retry appears for every failed query; the design allows it only for network and unexpected errors.\n  - A failed background refetch can lose unsaved work on the Role detail page, the Menus tab and the Menus form (unsaved permission and menu edits, an open form's values). I'm going by TanStack Query 5's documented behaviour here, not an observed failure.\n  - The CUJ 3 browser test can't tell the server's warning from the console's own.\n  - Several component helpers that other modules depend on aren't described in the design.\n\nTwo side notes:\n- **Missing code links:** the service design names almost no source files (about 10 code paths in 2,080 lines; the UI design has 78). A file map in its \"Service structure\" section (\u00a72) would make the next drift check cheaper.\n- **Local secrets seen:** one of the two background reviewers ran a search that also matched the git-ignored `cce-admin-service/.env` and saw its local values. It didn't use or repeat them; they're not in the report or committed anywhere.",
+  "ttft_ms": 1793,
+  "type": "result",
+  "duration_ms": 93342,
+  "uuid": "1cb018f7-4067-44be-b653-3a959451df2d",
+  "ttft_stream_ms": 1048,
+  "time_to_request_ms": 144,
+  "first_content_frame_ms": 1048,
+  "queued_turn_count": 0,
+  "result_index": 2,
+  "credential_expires_at": "2026-11-25T12:02:27.741Z"
+}

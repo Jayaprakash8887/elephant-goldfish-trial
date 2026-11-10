@@ -845,3 +845,11 @@ Generated from [HISTORY.md](HISTORY.md) by `trial-log/tools/qa.py`. Do not edit 
 
 > How would you like to proceed?
 
+## Session `b60e3f70`: Drift report: /egm:egm-drift-report on docs/designs/ against the implementation
+
+### Q1 · asked in H-062 (2026-11-10 18:14 UTC) · no question asked
+
+**EGM asked:**
+
+> (this reply asks no question)
+

@@ -2985,3 +2985,52 @@ Backend defects found: none.
 Orchestrator re-ran npm run e2e: 6/6 pass; stand-in left in ok.
 ````
 
+### H-062 · 2026-11-10 18:14 UTC · EGM session turn · Drift report: /egm:egm-drift-report on docs/designs/ against the implementation
+
+- **Session:** `b60e3f70-a26e-4015-8a42-2005137f1faf` (new)
+- **Took:** 10.9 min · 4 model turns · est. $11.22 · output tokens 11,165
+- **Ran:** Claude Code 2.1.319 (Claude Code) headless, model `claude-opus-5-5`, effort `high`, permission mode `acceptEdits`
+- **Result:** ok
+- **Files changed:** `egm/drift/2026-11-10_DRIFT_REPORT.md` (added)
+
+**Input** (sent by the orchestrating Claude session):
+
+````text
+/egm:egm-drift-report docs/designs/
+
+EGM artifact directory: egm/drift/
+
+The design directory holds two designs (cce-admin-service.md and cce-admin-ui.md) plus author-decisions.md and SITEMAP.md, which are not designs. The code is in cce-admin-service/ (including gateway-stub/) and cce-admin-ui/. The implementing agents marked every place they had to depart from or fill in the design with a `DESIGN-GAP:` comment in the code; include each of those as a divergence, together with any drift they did not mark. Do not change any file other than the report.
+````
+
+**Output** (final reply of the headless session):
+
+````markdown
+I've written the drift report to `egm/drift/2026-11-10_DRIFT_REPORT.md` and changed no other file. Nothing was built or run, so drift that only shows at runtime (the Docker stack, the end-to-end runs) isn't covered.
+
+**Marked gaps.** The 82 `DESIGN-GAP:` comments in tracked files (28 in the service, 54 in the console) are all listed, with the design section and `file:line` for each. One more match is in the git-ignored local `cce-admin-service/.env`, which is a copy of the `.env.example` header, so I counted it once. Most are invented UI texts, labels and names. A few point at places where the design contradicts itself:
+- **Transactions:** "How to use this plan" says each database step commits before the next Keycloak call, but section 5 ("Locks") keeps one transaction open across the Keycloak calls for flows 5.2 to 5.4. The code follows section 5.
+- **Who builds the create-user request:** UI items 69 and 84 disagree on whether the form or the page builds it.
+- **"Result is unknown" text:** UI item 59 and the error-presentation section give different conditions for showing it.
+
+**Unmarked drift.** No major drift on the backend: all endpoints, error codes, audit actions, tables and seed rows match the design. What I found:
+- **Two marker comments are wrong:**
+  - The `gateway-stub/pom.xml` comment says nothing in `.gitignore` covers `dependency-reduced-pom.xml`, but the root `.gitignore` now ignores it.
+  - The `RoleCheckboxList` comment says a role's name "is not loaded", but `user.roles` already carries the names. `UserRolesForm` just doesn't pass them on.
+- **Service:**
+  - Linking an existing Keycloak account compares the username and email ignoring case, where the design says "exact".
+  - When a Keycloak check fails during role create or delete, the cause exception is dropped and not logged.
+  - Migration V2 fails if the gateway team adds any column to `api_permissions`.
+  - A missing `DATABASE_*` variable fails at startup without naming the variable, though the README says every missing variable is named.
+  - Some behaviour isn't in the design at all: the `/health` token handling, the stand-in gateway's 405, 500 and 404 responses, and an extra role on the test administrator.
+- **Console:**
+  - Retry appears for every failed query; the design allows it only for network and unexpected errors.
+  - A failed background refetch can lose unsaved work on the Role detail page, the Menus tab and the Menus form (unsaved permission and menu edits, an open form's values). I'm going by TanStack Query 5's documented behaviour here, not an observed failure.
+  - The CUJ 3 browser test can't tell the server's warning from the console's own.
+  - Several component helpers that other modules depend on aren't described in the design.
+
+Two side notes:
+- **Missing code links:** the service design names almost no source files (about 10 code paths in 2,080 lines; the UI design has 78). A file map in its "Service structure" section (§2) would make the next drift check cheaper.
+- **Local secrets seen:** one of the two background reviewers ran a search that also matched the git-ignored `cce-admin-service/.env` and saw its local values. It didn't use or repeat them; they're not in the report or committed anywhere.
+````
+

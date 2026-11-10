@@ -279,3 +279,53 @@ your own tasks", so each entry records:
   - Unit tests can time out at 5 s under heavy machine load.
 - **Cost:** 15 implementation agents, about 3.3 million subagent tokens (124k to 294k each).
 - **Snapshot:** tag `step-04`.
+
+## Step 05 · Drift report (`/egm:egm-drift-report`)
+
+- **When:** 2026-11-10, 18:03–18:14 UTC (10.9 minutes, one turn, est. $11.22). H-062.
+- **How:** a fresh headless session ran `/egm:egm-drift-report docs/designs/` with the artifact
+  directory `egm/drift/`. The prompt named the two designs, said that `author-decisions.md` and
+  `SITEMAP.md` are not designs, and asked for every `DESIGN-GAP:` comment to be listed as a
+  divergence. It started two background reviewers, one for each design, then checked their
+  findings itself.
+- **Output:** [`egm/drift/2026-11-10_DRIFT_REPORT.md`](../egm/drift/2026-11-10_DRIFT_REPORT.md).
+  No other file changed. It records:
+  - **Marked:** all 82 `DESIGN-GAP:` markers in tracked files (28 service, 54 console), each with
+    its design section and `file:line`. The agents reported about 72 distinct gaps; some gaps
+    are marked in more than one place.
+  - **Unmarked:** about 30 places where the code differs from the design and no marker says so.
+- **Unmarked drift that matters** (none of it broke a test):
+  1. **Console, lost edits:** a failed background refetch makes Role detail, the Menus tab and
+     the Menus form unmount, losing unsaved permission edits, a menu selection or an open form.
+     `UserEditPage` and `RolePermissionsTab` already handle this case. The reviewer inferred this
+     from TanStack Query 5's documented behaviour; it was not observed.
+  2. **Console, Retry everywhere:** every failed query shows Retry, including 401 and 403. The
+     design allows Retry only for network and unexpected errors.
+  3. **Service, account linking:** the match on username and email ignores case, where the design
+     says "exact".
+  4. **Service, lost cause:** when the Keycloak check fails on role create or delete, the cause
+     exception is dropped, not logged.
+  5. **Service, migration V2:** it fails if the gateway team ever adds a column to
+     `api_permissions`. That is stricter than §6 says, and it would stop this service migrating.
+  6. **Service, configuration:** a missing `DATABASE_*` variable fails without naming it, though
+     the README says every missing variable is named.
+  7. **Two markers out of date:** one says `.gitignore` does not cover a file that it now covers.
+     The other says a role's name "is not loaded" when it is.
+  8. **Behaviour the design does not describe:** the `/health` token handling, the stand-in's
+     405, 500 and 404 responses, the `@Immutable` audit entity, and component helpers that other
+     modules depend on.
+- **What the drift report adds:** it is the only step that read the code against the design
+  section by section. The build checks prove the code works. This report shows where the code
+  and the design disagree, and that is what the next design update needs. Items 1 and 2 are
+  console defects that no test covered.
+- **The report's own suggestions:** the service design names about 10 source paths in 2,080
+  lines, while the console design names 78. A file map in the service design's §2 would make the
+  next drift check cheaper.
+- **Friction:** one background reviewer ran a search that also matched the git-ignored
+  `cce-admin-service/.env`, and so read local values. The session said so in its reply. A check
+  of every value in that file against the report, HISTORY.md and the run record found only
+  non-secret identifiers (a database username, a test username, an audience and a URL). No
+  password or secret was copied anywhere. See C-19.
+- **Not done:** the drift findings were recorded, not fixed. Fixing them, and updating the
+  designs to match the code, is the next cycle.
+- **Snapshot:** tag `step-05`.

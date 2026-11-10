@@ -37,6 +37,7 @@ Causes:
 | C-16 | Review | 145 findings for one design, from stages that disagree on direction, so the author must arbitrate | EGM by design | Resolved by author triage |
 | C-17 | Review | Review rounds on a plan written at code level do not converge, because fixes create new findings | EGM by design | Stopped after round 2; the build checks take over |
 | C-18 | Resolve | The plan's 5-hour usage limit stopped two sessions mid-turn, leaving partial edits and a false "resolved" status | Host / Environment | Recovered by resuming each session with a check-and-finish prompt |
+| C-19 | Drift | A drift reviewer's search matched the git-ignored local `.env` and read its values | EGM / Host | Checked: no secret copied; teams should deny reads of `.env` files |
 
 ## Details
 
@@ -310,3 +311,24 @@ Causes:
   - Commit after every completed EGM turn, so an interruption is visible as a diff.
   - Plan multi-design runs around the usage limit. Run fewer sessions in parallel, or use API
     billing for long unattended runs.
+
+### C-19 · A drift reviewer read the git-ignored local `.env`
+
+- **What happened:** in H-062, one of the drift report's background reviewers ran a search across
+  the repository. It matched `cce-admin-service/.env`, a git-ignored file with the local stack's
+  generated values, and the reviewer saw those values. The session reported this itself and did
+  not repeat them.
+- **Why:** EGM's reviewers have Read, Grep and Glob over the whole working folder. Ignoring
+  files listed in `.gitignore` is not a security boundary, and nothing in EGM or the project
+  settings denied reads of `.env`.
+- **Impact:** none found. Every value in the file was compared with the drift report,
+  HISTORY.md and the run record. The only matches were non-secret identifiers (a database
+  username, a test username, a token audience and a URL). The values are local-only and are
+  regenerated with the stack.
+- **For teams:**
+  - Add a deny rule such as `Read(**/.env)` to the project's `.claude/settings.json` before
+    running EGM in a repository that holds local secrets. Name any other secret files the same
+    way. A broad `Read(**/.env.*)` would also hide `.env.example`, which reviewers need.
+  - Keep real credentials out of the working folder altogether, for example in a secret manager
+    or a file outside the repository.
+
