@@ -29,7 +29,7 @@ EGM has three roles:
 | [trial-log/HISTORY.md](trial-log/HISTORY.md) | Every input sent to EGM and its exact reply, in order |
 | [trial-log/QA.md](trial-log/QA.md) | Each question EGM asked, paired with the answer it got |
 | [trial-log/timeline.md](trial-log/timeline.md) | Generated from session transcripts: subagents, files read and written, tokens |
-| [context/](context/) | The inputs: PRD, the team's design docs, gateway contract (see `PROVENANCE.md`) |
+| [context/](context/) | The inputs: the PRD, the gateway's `api_permissions` contract, and the existing console's docs (see `PROVENANCE.md`). The designs are created fresh from these. |
 | [docs/designs/](docs/designs/) | The approved designs EGM produced |
 | `egm/<design>/` | EGM's drafts and review reports for each design |
 | `cce-admin-service/`, `cce-admin-ui/` | The implementation |
