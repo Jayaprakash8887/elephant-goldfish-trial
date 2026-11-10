@@ -1,0 +1,25 @@
+# Secrets and local environment values (PRD §11)
+.env
+.env.*
+!.env.example
+!*.env.example
+*.pem
+*.key
+
+# Build and dependency output
+__pycache__/
+node_modules/
+dist/
+target/
+coverage/
+.vite/
+*.log
+
+# Personal Claude Code settings
+.claude/settings.local.json
+
+# Editors and OS
+.idea/
+*.iml
+.vscode/
+.DS_Store
