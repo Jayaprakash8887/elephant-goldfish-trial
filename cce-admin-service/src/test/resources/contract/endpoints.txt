@@ -14,3 +14,10 @@ GET /admin/v1/menus
 POST /admin/v1/menus
 PUT /admin/v1/menus/{id}
 DELETE /admin/v1/menus/{id}
+GET /admin/v1/users
+POST /admin/v1/users
+GET /admin/v1/users/{id}
+PUT /admin/v1/users/{id}
+PATCH /admin/v1/users/{id}/status
+PUT /admin/v1/users/{id}/roles
+POST /admin/v1/users/{id}/reset-password

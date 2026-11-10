@@ -2905,3 +2905,22 @@ Risk noted: under machine load (load avg ~17 on 14 cores) some existing tests hi
 Orchestrator re-ran the check under load avg ~8: exit 0, 403/403.
 ````
 
+### H-058 · 2026-11-10 17:27 UTC · orchestrator action · Implement admin-service phase 6 (users and Keycloak provisioning)
+
+- **Actor:** Orchestrator -> fresh implementation agent
+
+**Input** (what was asked or run):
+
+````text
+Fresh agent, same brief. Scope: Phase 6, users and Keycloak provisioning (B-30 to B-36); plus: make User responses follow 4.1 (at most 6 fractional digits).
+````
+
+**Output** (what came back):
+
+````markdown
+Agent report (condensed): UserController (7 endpoints), search specifications, locks (per-user FOR UPDATE, LAST_SYSTEM_ADMIN), UserService flows 5.1-5.5; request DTOs; UserViews truncates to microseconds and responses are read back; 61 new tests (264 total) incl. concurrency test for the last admin and a 6-digit timestamp test.
+Exit check passed: ./mvnw verify 264 tests; live: POST /users 201, Keycloak account with PHASE5_ROLE, UPDATE_PASSWORD required action, Mailpit received the email; PATCH status INACTIVE disables in Keycloak, ACTIVE enables.
+DESIGN-GAPs (6): contradiction between "How to use this plan" (commit each DB step before Keycloak) and section 5 "Locks" (one transaction across Keycloak calls for 5.2-5.4); unnamed lookup steps; names when linking; emailVerified rule in 5.2; keycloakUserId in 502s; where 4.1 truncation happens.
+Orchestrator re-ran ./mvnw verify: exit 0.
+````
+
