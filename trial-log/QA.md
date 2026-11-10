@@ -213,7 +213,7 @@ Generated from [HISTORY.md](HISTORY.md) by `trial-log/tools/qa.py`. Do not edit 
 >
 > The admin-service session already has the PERMISSION_ALLOWED_METHODS change for its §4.4 and §9.4, together with its own finalization.
 
-### Q10 · asked in H-031 (2026-11-10 13:41 UTC) · **waiting for an answer**
+### Q10 · asked in H-031 (2026-11-10 13:41 UTC) · answered in H-033
 
 **EGM asked:**
 
@@ -221,6 +221,22 @@ Generated from [HISTORY.md](HISTORY.md) by `trial-log/tools/qa.py`. Do not edit 
 >
 > 1. Keep the draft's layout and record it as a deviation from PRD §6
 > 2. Follow the PRD §6 layout exactly: add an auth context and drop `utils/`
+
+**Answer given:**
+
+> 1. Keep the draft's layout and record it as a deviation from PRD §6.
+>
+> Reasons:
+> - The console has no cross-page client state beyond what TanStack Query already caches (`/me` included), so a `context/` folder would be empty or ceremonial.
+> - The F1 note's "auth/ ... context" is met by `auth/` exposing `useAuth`.
+> - Moving the pure helpers into PRD-named folders would put them where their names mislead, and would break the rule that components never import `hooks/`.
+> Record it in a deviations table, in the same form the admin-service design uses (PRD text, this design, why), so that it is raised with the team under PRD §11 together with the others. Then continue finalization.
+
+### Q11 · asked in H-033 (2026-11-10 13:43 UTC) · no question asked
+
+**EGM asked:**
+
+> (this reply asks no question)
 
 ## Session `d8132724`: Fresh draft admin-service, turn 1: /egm:egm-draft on the PRD (no team docs)
 

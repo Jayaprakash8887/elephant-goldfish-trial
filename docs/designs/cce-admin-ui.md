@@ -1,7 +1,7 @@
 # CCE v2 Admin Console (`cce-admin-ui`)
 
 *   **Author:** jayaprakash8887
-*   **Status:** Draft
+*   **Status:** Proposed
 *   **Date:** 2026-11-10
 
 --------------------------------------------------------------------------------
@@ -17,7 +17,7 @@ The console has four areas: a signed-in shell, Users, Roles (with a Menus tab an
 tab), and the Menus catalog. It holds no data of its own. Every read and write goes to
 `cce-admin-service` under `/admin/v1`, with a Keycloak access token. In shared environments the
 calls pass through `gateway-service`. During local development the Vite dev server sends them
-straight to the service on `localhost:8085` ([D-03](../../docs/designs/author-decisions.md)).
+straight to the service on `localhost:8085` ([D-03](author-decisions.md)).
 Until that service exists, the console is built and tested against MSW mocks.
 
 The stack follows the existing analytics console, `cce-insights-ui`
@@ -27,19 +27,19 @@ The stack follows the existing analytics console, `cce-insights-ui`
 Vite 6, React Router 7, TanStack Query 5 and Table 8, Tailwind CSS 4, `keycloak-js` 26, React
 Hook Form 7 with Zod 3, and Vitest with Testing Library and MSW (PRD §6). Every package and
 image is pinned to the exact version the author checked and recorded as
-[D-05](../../docs/designs/author-decisions.md#d-05-pinned-versions-checked-on-2026-11-10).
+[D-05](author-decisions.md#d-05-pinned-versions-checked-on-2026-11-10).
 Where this console departs from that template, the departure comes from the PRD and is listed
 under [Conflicts between inputs](#conflicts-between-inputs).
 
 The console uses the API contract. It does not define it. Under
-[D-01](../../docs/designs/author-decisions.md), the
-[admin-service design](../admin-service/design_draft.md) owns every request and response shape,
+[D-01](author-decisions.md), the
+[admin-service design](cce-admin-service.md) owns every request and response shape,
 error code, pagination block and warning. That contract is complete and approved by the author:
 the admin-service design's Technical Plan
-[§3](../admin-service/design_draft.md#3-request-pipeline-and-security-b-05-b-10-to-b-13)
-(request pipeline), [§4](../admin-service/design_draft.md#4-api-contract) (conventions, error
+[§3](cce-admin-service.md#3-request-pipeline-and-security-b-05-b-10-to-b-13)
+(request pipeline), [§4](cce-admin-service.md#4-api-contract) (conventions, error
 codes, pagination, resources, endpoints, and its answers to this design's requirements in §4.6)
-and [§9.3](../admin-service/design_draft.md#93-values-commands-and-reset) (local values). This
+and [§9.3](cce-admin-service.md#93-values-commands-and-reset) (local values). This
 document refers to those sections by number ("admin-service §4.4") and does not copy the shapes,
 except where a screen needs one field named.
 
@@ -183,7 +183,7 @@ deviations.
 ### Requirements on the admin-service design: all answered
 
 This design put 24 requirements on the admin-service design. All are answered in its
-[§4.6](../admin-service/design_draft.md#46-answers-to-the-console-designs-requirements), and
+[§4.6](cce-admin-service.md#46-answers-to-the-console-designs-requirements), and
 this design uses those answers. The table records what was asked and what the console does as
 a result.
 
@@ -980,7 +980,7 @@ These were not weighed; the PRD decides them, and the design follows it.
 
 Every file below is created under `cce-admin-ui/` at the root of this folder, unless its path
 says otherwise. No existing file is modified. Versions are exact
-([D-05](../../docs/designs/author-decisions.md#d-05-pinned-versions-checked-on-2026-11-10));
+([D-05](author-decisions.md#d-05-pinned-versions-checked-on-2026-11-10));
 `package-lock.json` is committed.
 
 ### Order of work
@@ -1310,8 +1310,8 @@ says otherwise. No existing file is modified. Versions are exact
     *   Constants: `USER_STATUSES`, `SYNC_STATUSES`, `PERMISSION_METHODS = ['GET', 'POST',
         'PUT', 'PATCH', 'DELETE']`, the fixed list of the contract (CQ-1).
 
-    The header comment links `../../egm/admin-service/design_draft.md` §4 (and, after
-    approval, the saved design in `docs/designs/`) and states "mirrors the contract of
+    The header comment links `../../../docs/designs/cce-admin-service.md` §4 (the saved
+    admin-service design, relative to `src/api/`) and states "mirrors the contract of
     2026-11-10".
 
 ##### 27. `src/api/ApiError.ts` (Create)

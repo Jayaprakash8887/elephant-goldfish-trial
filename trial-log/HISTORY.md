@@ -1805,3 +1805,43 @@ The table now runs DEV-1 to DEV-6 in order. Other changes to interfaces or depen
 **Next step:** run `/egm:egm-review docs/designs/cce-admin-service.md` so the design is reviewed from a fresh context.
 ````
 
+### H-033 · 2026-11-10 13:43 UTC · EGM session turn · Fresh draft admin-ui, turn 11: finalization: keep folder layout, record deviation
+
+- **Session:** `02eb6e8f-75ce-4bca-bef2-98c5fc29ddf1` (resumed)
+- **Answers:** the question at the end of H-031 (see [QA.md](QA.md))
+- **Took:** 1.2 min · 21 model turns · est. $9.02 · output tokens 6,385
+- **Ran:** Claude Code 2.1.319 (Claude Code) headless, model `claude-opus-5-5`, effort `high`, permission mode `acceptEdits`
+- **Result:** ok
+- **Files changed:** `docs/designs/cce-admin-ui.md` (added), `docs/designs/SITEMAP.md` (changed), `egm/admin-ui/design_draft.md` (changed)
+
+**Input** (sent by the orchestrating Claude session):
+
+````text
+1. Keep the draft's layout and record it as a deviation from PRD §6.
+
+Reasons:
+- The console has no cross-page client state beyond what TanStack Query already caches (`/me` included), so a `context/` folder would be empty or ceremonial.
+- The F1 note's "auth/ ... context" is met by `auth/` exposing `useAuth`.
+- Moving the pure helpers into PRD-named folders would put them where their names mislead, and would break the rule that components never import `hooks/`.
+Record it in a deviations table, in the same form the admin-service design uses (PRD text, this design, why), so that it is raised with the team under PRD §11 together with the others. Then continue finalization.
+````
+
+**Output** (final reply of the headless session):
+
+````markdown
+The console design is saved at [docs/designs/cce-admin-ui.md](docs/designs/cce-admin-ui.md) with status Proposed.
+
+- **Deviation recorded:** the folder layout is recorded as UI-DEV-1 in a new "Deviations from the PRD" table, in the same form as the admin-service design, so it can be raised with the team under PRD §11.
+- **Links adjusted:** links to the admin-service design and `author-decisions.md` now point to the saved files next to it, and the planned `contract.ts` header comment points to `docs/designs/cce-admin-service.md`. Every link in the saved file resolves.
+- **Sitemap:** [SITEMAP.md](docs/designs/SITEMAP.md) has a row for it next to `cce-admin-service`.
+- **Working copy:** `egm/admin-ui/design_draft.md` keeps its own links to the draft locations.
+
+Next, review it with the six fresh-context reviewers:
+
+```
+/egm:egm-review docs/designs/cce-admin-ui.md
+```
+
+Running it after the admin-service review, or alongside it, lets the reviewers check the console against the contract it mirrors.
+````
+

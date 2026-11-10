@@ -124,3 +124,65 @@ your own tasks", so each entry records:
   $1.18), plus the stopped turn-2 runs, which recorded no cost. Token counts are in timeline.md.
 - **Snapshot:** tag `step-01`, with the inputs and the partial draft as they were when the
   attempt stopped.
+
+## Step 02 · Both designs drafted fresh from the PRD (`/egm:egm-draft`)
+
+- **When:** 2026-11-10, 12:56–13:43 UTC. That is 47 minutes of wall-clock time for both designs,
+  drafted in parallel. Sessions `d8132724` (admin-service, 17 turns) and `02eb6e8f` (admin-ui, 11
+  turns), headless, Claude Code 2.1.319, Opus 5.5, effort high.
+- **Inputs:** the PRD, the gateway's `api_permissions` doc, the cce-insights-ui docs, and
+  `docs/designs/author-decisions.md`. That file held D-01 (the service design owns the contract)
+  and D-03 (it defines the local environment) at the start, and D-05 (exact versions) was added
+  during the step.
+- **What happened:** each Elephant followed EGM's draft skill in order:
+  1. confirmed the context, listing the conflicts and gaps in the inputs;
+  2. drafted Overview & Goals;
+  3. drafted the Technical Plan, with option gates for each design choice;
+  4. drafted Alternatives Considered;
+  5. drafted the Detailed Implementation;
+  6. finalized, which reconciles the draft against the PRD, records deviations and saves to
+     `docs/designs/` with a sitemap row.
+- **Gates answered by Claude as the user's delegate:** all 31 questions and answers are in
+  [QA.md](QA.md).
+  - **admin-service:**
+    - 11 option gates: OQ-1 to OQ-10, plus a follow-up on keeping the service-account role
+      from people.
+    - 1 batch of six smaller decisions.
+    - 5 section approvals.
+    - 2 contradiction stops, at H-017 and H-022. The Elephant refused to write until the author
+      settled a contradiction with approved goals.
+  - **admin-ui:**
+    - 2 option gates: TP-1, the test seam for sign-in, and TP-2, development before the
+      service exists.
+    - 5 section approvals.
+    - 1 finalization contradiction: the folder layout.
+    - 1 hold, which the author imposed until the service contract was complete.
+- **Outputs:**
+  - [`docs/designs/cce-admin-service.md`](../docs/designs/cce-admin-service.md), 1,653 lines.
+    It holds 17 author decisions (AD-01 to AD-17), 6 deviations from the PRD (DEV-1 to DEV-6),
+    6 questions for the gateway owners (GW-1 to GW-6), the full API contract, the data dictionary
+    and seed, the local environment, and an eight-phase build plan.
+  - [`docs/designs/cce-admin-ui.md`](../docs/designs/cce-admin-ui.md), 117 KB. It answers all 24
+    of its contract requirements against the service design, records 1 deviation (UI-DEV-1), and
+    lists 104 files in its build plan.
+- **What EGM caught while drafting** (beyond what the author raised):
+  - Flyway refuses to migrate a non-empty `public` schema that has no history table, which is the
+    state wherever the gateway's script already ran.
+  - P1: the last `SUPER_ADMIN` could be locked out.
+  - P2: emptying the permissions of a role that users hold leaves those users with a silent
+    Keycloak mismatch.
+  - P3: a GLOBAL sync scope makes other roles' sync status stale.
+  - P4: only roles being added need the Keycloak check.
+  - A role delete followed by a failed sync leaves nothing to re-sync.
+  - The stand-in gateway must delete only the realm roles it created itself.
+  - The configurable list of allowed methods was not exposed to the console. The console design
+    found this as CQ-1.
+  - `useBlocker` needs a data router.
+
+  Two contradictions in the author's own batch of decisions were caught before anything was
+  written. The full list is in REPORT §6.
+- **Problems and friction:** C-12 (the designs depend on each other), C-13 (versions cannot be
+  looked up headless), C-14 (one question per turn). See CHALLENGES.md.
+- **Cost:** estimated at list price, $71.32 for admin-service and $46.65 for admin-ui
+  ($117.97 in total, 246 model turns). Token counts are in timeline.md.
+- **Snapshot:** tag `step-02`.
