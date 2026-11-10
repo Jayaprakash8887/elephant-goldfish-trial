@@ -2785,3 +2785,24 @@ DESIGN-GAPs (4): error-shape test needs endpoints Phase 3 does not have (test-on
 Orchestrator re-ran ./mvnw verify: exit 0.
 ````
 
+### H-052 · 2026-11-10 16:25 UTC · orchestrator action · Implement admin-ui step 3 (F2 roles and menus tab)
+
+- **Actor:** Orchestrator -> fresh implementation agent
+
+**Input** (what was asked or run):
+
+````text
+Fresh agent, same brief. Scope: UI step 3, F2 roles list, role detail and Menus tab.
+````
+
+**Output** (what came back):
+
+````markdown
+Agent report (condensed): roles/roleMenus/menus API modules and hooks, paging and unsaved-changes hooks, format and menuTree utils, role schemas and rules, 9 shared components, 4 role components, RolesListPage, RoleDetailPage, RoleMenusTab; routes /roles and /roles/:id.
+Check passed: 18 files / 221 tests; coverage 100% stmts, 98.25% branches.
+Exit-check rows (MSW): F1 403 inline (roles part), F2 create role with name warning + confirm, menus tree saves full set, DETAIL-only warning client and server.
+DESIGN-GAPs (11, small): validation message texts, PAGE_SIZES home, extra props on RoleCreateForm (pending, serverError), several button/label texts, paginated list without pagination, past-last-page rule applied to Roles too, "system role" note placement, Menus tab reinit source.
+Unmarked deviation: method-style callback props in item 64 fail the configured lint rule unbound-method; written as function-type props.
+Orchestrator re-ran the check: exit 0.
+````
+
