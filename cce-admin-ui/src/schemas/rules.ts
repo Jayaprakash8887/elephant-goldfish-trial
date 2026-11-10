@@ -29,3 +29,23 @@ export const ROLE_NAME_MAX = 100;
 export const ROLE_DISPLAY_NAME_MIN = 1;
 export const ROLE_DISPLAY_NAME_MAX = 100;
 export const ROLE_DESCRIPTION_MAX = 500;
+
+// ---------------------------------------------------------------------------------------------
+// Permission row (admin-service §4.4, "Permission row"; §4.5, `PUT /roles/:id/permissions`)
+// ---------------------------------------------------------------------------------------------
+
+/** 1 to 255 characters. */
+export const PERMISSION_URI_MIN = 1;
+export const PERMISSION_URI_MAX = 255;
+/** Starts with `/`. */
+export const PERMISSION_URI_START = /^\//;
+/** Made only of letters, digits and `- . _ ~ / *`. */
+export const PERMISSION_URI_CHARS = /^[A-Za-z0-9\-._~/*]*$/;
+/** Has no empty segment. */
+export const PERMISSION_URI_EMPTY_SEGMENT = /\/\//;
+/** `**` may only be the whole last segment. */
+export const PERMISSION_URI_DOUBLE_STAR = '**';
+export const PERMISSION_DESCRIPTION_MAX = 1000;
+export const PERMISSION_CATEGORY_MAX = 50;
+/** 0 to 200 explicit rows per save. */
+export const PERMISSION_ROWS_MAX = 200;

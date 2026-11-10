@@ -4,10 +4,20 @@ import {
   PERMISSION_METHODS as CONTRACT_METHODS,
   USER_STATUSES as CONTRACT_STATUSES,
 } from '../../api/contract';
+import {
+  DUPLICATE_RULE_MESSAGE,
+  IMPLICIT_EQUAL_MESSAGE,
+  permissionRowSchema,
+  permissionsFormSchema,
+} from '../permissionSchemas';
 import { createRoleSchema, roleDisplaySchema } from '../roleSchemas';
 import {
   PAGE_SIZES,
+  PERMISSION_CATEGORY_MAX,
+  PERMISSION_DESCRIPTION_MAX,
   PERMISSION_METHODS,
+  PERMISSION_ROWS_MAX,
+  PERMISSION_URI_MAX,
   ROLE_DESCRIPTION_MAX,
   ROLE_DISPLAY_NAME_MAX,
   ROLE_NAME_MAX,
@@ -114,6 +124,156 @@ describe('roleDisplaySchema', () => {
     expect(Object.keys(result.error?.flatten().fieldErrors ?? {}).sort()).toEqual([
       'description',
       'displayName',
+    ]);
+  });
+});
+
+const validRule = {
+  httpMethod: 'GET',
+  uriPattern: '/admin/v1/users/**',
+  description: '',
+  resourceCategory: '',
+};
+
+function ruleErrors(values: Partial<typeof validRule>) {
+  const result = permissionRowSchema.safeParse({ ...validRule, ...values });
+  return result.success ? {} : result.error.flatten().fieldErrors;
+}
+
+const implicitRows = [
+  { httpMethod: 'GET', uriPattern: '/admin/v1/me' },
+  { httpMethod: 'GET', uriPattern: '/admin/v1/me/menus' },
+];
+
+/** The issues of the rules form, as `path: message`. */
+function formIssues(permissions: Partial<typeof validRule>[]) {
+  const result = permissionsFormSchema(implicitRows).safeParse({
+    permissions: permissions.map((row) => ({ ...validRule, ...row })),
+  });
+  return result.success
+    ? []
+    : result.error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`);
+}
+
+describe('permissionRowSchema', () => {
+  it('accepts a valid rule, trims every string and upper-cases the method', () => {
+    expect(
+      permissionRowSchema.parse({
+        httpMethod: ' patch ',
+        uriPattern: ' /admin/v1/users/*/status ',
+        description: ' Change status ',
+        resourceCategory: ' Users ',
+      }),
+    ).toEqual({
+      httpMethod: 'PATCH',
+      uriPattern: '/admin/v1/users/*/status',
+      description: 'Change status',
+      resourceCategory: 'Users',
+    });
+  });
+
+  it.each(PERMISSION_METHODS)('accepts the method %s', (httpMethod) => {
+    expect(ruleErrors({ httpMethod })).toEqual({});
+  });
+
+  it.each(['HEAD', 'OPTIONS', '*', ''])('rejects the method "%s"', (httpMethod) => {
+    expect(ruleErrors({ httpMethod }).httpMethod).toBeDefined();
+  });
+
+  it.each([
+    '/',
+    '/v1/insights/**',
+    '/admin/v1/users/*',
+    '/admin/v1/users/*/roles',
+    '/a-b.c_d~e/F9',
+    '/admin/v1/users/',
+  ])('accepts the URI pattern %s', (uriPattern) => {
+    expect(ruleErrors({ uriPattern })).toEqual({});
+  });
+
+  it.each([
+    ['empty', '', 'Enter a URI pattern.'],
+    ['blank', '   ', 'Enter a URI pattern.'],
+    ['not starting with /', 'admin/v1/users', 'Start with /.'],
+    ['a space', '/admin/v1/a b', 'Use only letters, digits and - . _ ~ / *.'],
+    ['a query', '/admin/v1/users?q=1', 'Use only letters, digits and - . _ ~ / *.'],
+    ['a path variable', '/admin/v1/users/{id}', 'Use only letters, digits and - . _ ~ / *.'],
+    ['an empty segment', '/admin//users', 'No empty segment (//).'],
+    ['** before the last segment', '/admin/**/users', '** may only be the whole last segment.'],
+    ['** inside a segment', '/admin/v1/users**', '** may only be the whole last segment.'],
+    ['***', '/admin/***', '** may only be the whole last segment.'],
+  ])('rejects a URI pattern that is %s', (_case, uriPattern, message) => {
+    expect(ruleErrors({ uriPattern }).uriPattern).toContain(message);
+  });
+
+  it(`accepts ${PERMISSION_URI_MAX} characters and rejects ${PERMISSION_URI_MAX + 1}`, () => {
+    const pattern = (length: number) => `/${'a'.repeat(length - 1)}`;
+    expect(ruleErrors({ uriPattern: pattern(PERMISSION_URI_MAX) })).toEqual({});
+    expect(ruleErrors({ uriPattern: pattern(PERMISSION_URI_MAX + 1) }).uriPattern).toContain(
+      `At most ${PERMISSION_URI_MAX} characters.`,
+    );
+  });
+
+  it(`allows an empty description of at most ${PERMISSION_DESCRIPTION_MAX} characters`, () => {
+    expect(ruleErrors({ description: '' })).toEqual({});
+    expect(ruleErrors({ description: 'x'.repeat(PERMISSION_DESCRIPTION_MAX) })).toEqual({});
+    expect(
+      ruleErrors({ description: 'x'.repeat(PERMISSION_DESCRIPTION_MAX + 1) }).description,
+    ).toBeDefined();
+  });
+
+  it(`allows an empty category of at most ${PERMISSION_CATEGORY_MAX} characters`, () => {
+    expect(ruleErrors({ resourceCategory: '' })).toEqual({});
+    expect(ruleErrors({ resourceCategory: 'x'.repeat(PERMISSION_CATEGORY_MAX) })).toEqual({});
+    expect(
+      ruleErrors({ resourceCategory: 'x'.repeat(PERMISSION_CATEGORY_MAX + 1) }).resourceCategory,
+    ).toBeDefined();
+  });
+});
+
+describe('permissionsFormSchema (console-only rules)', () => {
+  it('accepts no rules and distinct rules', () => {
+    expect(formIssues([])).toEqual([]);
+    expect(
+      formIssues([
+        { uriPattern: '/admin/v1/users/**' },
+        { httpMethod: 'POST', uriPattern: '/admin/v1/users/**' },
+        { uriPattern: '/admin/v1/roles/**' },
+      ]),
+    ).toEqual([]);
+  });
+
+  it('reports a duplicate method and pattern on the later row', () => {
+    expect(
+      formIssues([
+        { uriPattern: '/admin/v1/users/**', description: 'first' },
+        { uriPattern: '/admin/v1/roles' },
+        { httpMethod: 'get', uriPattern: ' /admin/v1/users/** ', description: 'second' },
+      ]),
+    ).toEqual([`permissions.2.uriPattern: ${DUPLICATE_RULE_MESSAGE}`]);
+  });
+
+  it('reports a row equal to an implicit row', () => {
+    expect(
+      formIssues([{ uriPattern: '/admin/v1/users/**' }, { uriPattern: '/admin/v1/me/menus' }]),
+    ).toEqual([`permissions.1.uriPattern: ${IMPLICIT_EQUAL_MESSAGE}`]);
+    // Another method on the same pattern is not an implicit row.
+    expect(formIssues([{ httpMethod: 'POST', uriPattern: '/admin/v1/me' }])).toEqual([]);
+  });
+
+  it('reports nothing implicit for a role without implicit rows', () => {
+    const result = permissionsFormSchema([]).safeParse({
+      permissions: [{ ...validRule, uriPattern: '/admin/v1/me' }],
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it(`accepts ${PERMISSION_ROWS_MAX} rules and rejects ${PERMISSION_ROWS_MAX + 1}`, () => {
+    const rows = (count: number) =>
+      Array.from({ length: count }, (_, i) => ({ uriPattern: `/v1/r${i}` }));
+    expect(formIssues(rows(PERMISSION_ROWS_MAX))).toEqual([]);
+    expect(formIssues(rows(PERMISSION_ROWS_MAX + 1))).toEqual([
+      `permissions: At most ${PERMISSION_ROWS_MAX} rules.`,
     ]);
   });
 });

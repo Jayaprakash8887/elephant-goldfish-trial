@@ -42,7 +42,11 @@ describe('RoleDetailPage', () => {
     await screen.findByRole('checkbox', { name: 'Dashboard' });
     await user.click(screen.getByRole('tab', { name: 'Permissions' }));
     expect(router.state.location.search).toBe('?tab=permissions');
-    expect(screen.getByText('Permissions are not available yet.')).toBeInTheDocument();
+    expect(
+      await within(screen.getByRole('tabpanel', { name: 'Permissions' })).findByText(
+        "Synced means the gateway's sync call succeeded.",
+      ),
+    ).toBeInTheDocument();
     await user.click(screen.getByRole('tab', { name: 'Menus' }));
     expect(router.state.location.search).toBe('?tab=menus');
     expect(await screen.findByRole('checkbox', { name: 'Dashboard' })).toBeInTheDocument();
@@ -50,7 +54,7 @@ describe('RoleDetailPage', () => {
 
   it('opens ?tab=permissions directly', async () => {
     renderRoute(`${facilityPath}?tab=permissions`);
-    expect(await screen.findByText('Permissions are not available yet.')).toBeInTheDocument();
+    expect(await screen.findByRole('textbox', { name: 'URI pattern, row 1' })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: 'Permissions' })).toHaveAttribute(
       'aria-selected',
       'true',

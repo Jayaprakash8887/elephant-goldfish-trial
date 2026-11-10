@@ -236,7 +236,11 @@ describe('RoleMenusTab', () => {
       }),
     );
     await waitFor(() => expect(router.state.location.search).toBe('?tab=permissions'));
-    expect(screen.getByText('Permissions are not available yet.')).toBeInTheDocument();
+    expect(
+      await within(screen.getByRole('tabpanel', { name: 'Permissions' })).findByRole('button', {
+        name: 'Re-sync',
+      }),
+    ).toBeInTheDocument();
   });
 
   it('does not guard when nothing changed', async () => {

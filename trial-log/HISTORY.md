@@ -2806,3 +2806,23 @@ Unmarked deviation: method-style callback props in item 64 fail the configured l
 Orchestrator re-ran the check: exit 0.
 ````
 
+### H-053 · 2026-11-10 16:39 UTC · orchestrator action · Implement admin-ui step 4 (F3 permissions tab)
+
+- **Actor:** Orchestrator -> fresh implementation agent
+
+**Input** (what was asked or run):
+
+````text
+Fresh agent, same brief. Scope: UI step 4, F3 permissions tab.
+````
+
+**Output** (what came back):
+
+````markdown
+Agent report (condensed): rolePermissions API + hook, syncRole/useSyncRole, permissions utils and schemas, PermissionsEditor, SyncStatusPanel, RolePermissionsTab; temporary text removed.
+Check passed: 20 files / 281 tests; coverage 99.95% stmts, 97.7% branches.
+Exit rows (MSW): F3 save shows synced; 502 shows retry state with refetch and remount; Re-sync 200/502.
+DESIGN-GAPs (6, small): editor needs onDirtyChange prop for the guard (components cannot import hooks); implicit section only when rows exist + section/column titles; row labels; add-button name; validation texts; refetch failure after save not covered.
+Orchestrator re-ran the check: exit 0.
+````
+

@@ -1,6 +1,14 @@
 import { useMutation, useQuery } from '@tanstack/react-query';
 import type { CreateRoleRequest, UpdateRoleRequest } from '../api/contract';
-import { createRole, deleteRole, getRole, listAllRoles, listRoles, updateRole } from '../api/roles';
+import {
+  createRole,
+  deleteRole,
+  getRole,
+  listAllRoles,
+  listRoles,
+  syncRole,
+  updateRole,
+} from '../api/roles';
 import { queryKeys } from './queryKeys';
 
 export function useRoleList(params: { page: number; pageSize: number }) {
@@ -28,4 +36,8 @@ export function useUpdateRole() {
 
 export function useDeleteRole() {
   return useMutation({ mutationFn: (id: string) => deleteRole(id) });
+}
+
+export function useSyncRole() {
+  return useMutation({ mutationFn: (id: string) => syncRole(id) });
 }

@@ -1,6 +1,6 @@
 import { ApiError, CLIENT_UNEXPECTED_RESPONSE } from './ApiError';
 import { apiDelete, apiRequest } from './client';
-import type { CreateRoleRequest, Role, UpdateRoleRequest } from './contract';
+import type { CreateRoleRequest, Role, RoleSyncResult, UpdateRoleRequest } from './contract';
 import type { Page, WithWarnings } from './results';
 
 /** `useAllRoles` reads at most five pages of 100 roles (UI-AD-20). */
@@ -60,4 +60,9 @@ export async function updateRole(id: string, body: UpdateRoleRequest): Promise<R
 
 export async function deleteRole(id: string): Promise<void> {
   await apiDelete(`/roles/${encodeURIComponent(id)}`);
+}
+
+/** Re-sync (`POST /roles/:id/sync`, no body): runs the gateway sync again. Allowed for system roles. */
+export async function syncRole(id: string): Promise<RoleSyncResult> {
+  return (await apiRequest<RoleSyncResult>('POST', `/roles/${encodeURIComponent(id)}/sync`)).data;
 }

@@ -13,6 +13,7 @@ import { SyncStatusBadge } from '../components/shared/SyncStatusBadge';
 import { useRole, useUpdateRole } from '../hooks/useRoles';
 import { describeError } from '../utils/describeError';
 import { RoleMenusTab } from './role-detail/RoleMenusTab';
+import { RolePermissionsTab } from './role-detail/RolePermissionsTab';
 
 type Tab = 'menus' | 'permissions';
 
@@ -97,12 +98,7 @@ function RoleDetail({ role }: { role: Role }) {
         ))}
       </div>
       <div role="tabpanel" aria-label={tab === 'menus' ? 'Menus' : 'Permissions'}>
-        {tab === 'menus' ? (
-          <RoleMenusTab role={role} />
-        ) : (
-          // Temporary until step 4, which renders RolePermissionsTab here.
-          <p className="text-sm">Permissions are not available yet.</p>
-        )}
+        {tab === 'menus' ? <RoleMenusTab role={role} /> : <RolePermissionsTab role={role} />}
       </div>
     </div>
   );
