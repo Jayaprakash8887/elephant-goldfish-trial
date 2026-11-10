@@ -1,0 +1,11 @@
+node_modules
+dist
+coverage
+# PRD §11: no .env files are committed.
+.env
+.env.*
+!.env.example
+playwright-report
+test-results
+# Holds a Keycloak session saved by the browser tests.
+e2e/.auth

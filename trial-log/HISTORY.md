@@ -2674,3 +2674,27 @@ All 34 findings are now in `docs/designs/cce-admin-ui.md`, and the report's "Sta
 I also corrected the report's IR-1 entry, which listed the step moves inaccurately and named `StatusBadge` twice.
 ````
 
+### H-047 · 2026-11-10 15:53 UTC · orchestrator action · Implement admin-ui step 1 (scaffold and tooling)
+
+- **Actor:** Orchestrator -> fresh implementation agent
+
+**Input** (what was asked or run):
+
+````text
+Fresh general-purpose agent (Agent tool), brief from scratchpad/prompts/impl-template.txt:
+Design docs/designs/cce-admin-ui.md (+ contract in cce-admin-service.md §4, §9.3; versions D-05).
+Scope: Order of work step 1, "Scaffold and tooling". Build only what the step lists; mark any undecided point as DESIGN-GAP; never commit; run the step check (npm run lint && npm run build && npm run test:ci) until it passes.
+````
+
+**Output** (what came back):
+
+````markdown
+Agent report (condensed; 125k tokens, 24 tool uses, 6.5 min):
+- Created items 1-18, placeholder src/main.tsx, items 22-23 under cce-admin-ui/. Exact-pinned deps (--save-exact).
+- Check passed (exit 0): eslint clean, prettier clean, tsc -b + vite build OK, vitest "No test files found" exit 0.
+- Extra checks: build fails with the C-02 message when VITE_KEYCLOAK_REALM is empty; temporary probe files proved each import-restriction group fires; probes removed.
+- DESIGN-GAP 1: src/index.css item 22 gives @import "tailwindcss" (double quotes) but item 10's Prettier singleQuote rule makes lint fail; wrote single quotes.
+- Note: npm audit reports 14 vulnerabilities at the D-05 pins (2 critical: tinypool under vitest 3.2.7; 1 high: zod <4.6.6); fixes need major bumps D-05 forbids. Raised for the author.
+Orchestrator re-ran the check independently: exit 0.
+````
+

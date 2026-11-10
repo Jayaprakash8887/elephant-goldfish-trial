@@ -1,0 +1,3 @@
+/* DESIGN-GAP: item 22 writes @import "tailwindcss"; but item 10 sets singleQuote, so Prettier
+   (npm run lint) requires single quotes. Same CSS. */
+@import 'tailwindcss';
