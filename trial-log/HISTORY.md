@@ -2964,3 +2964,24 @@ DESIGN-GAPs (2): naming rule when a scenario needs two names; no database access
 Orchestrator re-ran ./mvnw -Pe2e verify: exit 0.
 ````
 
+### H-061 · 2026-11-10 18:03 UTC · orchestrator action · Implement admin-ui step 7 (Playwright browser tests, Docker checks)
+
+- **Actor:** Orchestrator -> fresh implementation agent
+
+**Input** (what was asked or run):
+
+````text
+Fresh agent, same brief. Scope: UI step 7, browser tests (items 97-105) and the Docker verification items, against the running backend stack.
+````
+
+**Output** (what came back):
+
+````markdown
+Agent report (condensed): e2e/env.ts, global-setup.ts, auth.setup.ts (real Keycloak login page), fixtures.ts, CUJ 2-6 specs.
+Checks: Chromium installed without sudo; npm run e2e 6/6 pass twice (sign-in, CUJ 2 onboard, CUJ 3 configure role incl. server DETAIL warning, CUJ 4 change roles (full set), CUJ 5 deactivate/lock/activate, CUJ 6 sync failure then Re-sync then assign); lint, build, 403 unit tests pass; Docker verify stage on Node 20 passes; image builds; build without realm fails as designed; run without GATEWAY_UPSTREAM exits 1 as designed.
+Docker run check as written fails: /admin/v1/health 502, because under compose --profile app the service listens on 127.0.0.1 only (the plan's command assumes a host-run service). Equivalent run on the compose network passes (200, CSP and security headers present).
+DESIGN-GAPs (1): display/first/last names for test data. Note: CSP has a stray space when KEYCLOAK_ORIGIN is empty.
+Backend defects found: none.
+Orchestrator re-ran npm run e2e: 6/6 pass; stand-in left in ok.
+````
+
