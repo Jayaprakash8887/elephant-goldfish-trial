@@ -230,3 +230,52 @@ your own tasks", so each entry records:
 - **Cost:** about $189 estimated at list price, for 2 full reviews, 2 Stage 9 re-reviews, 6
   resolve turns, 1 cross-check and 2 recovery turns.
 - **Snapshot:** tag `step-03`.
+
+## Step 04 · Implementation by fresh agents, one phase at a time
+
+- **When:** 2026-11-10, 16:10–18:03 UTC (about 1 hour 55 minutes). The backend and console tracks
+  ran in parallel.
+- **How:** each phase was given to a new general-purpose agent (the Agent tool). The agent
+  received only the design document, its phase number and a fixed brief
+  (`scratchpad/prompts/impl-template.txt`), with these rules:
+  - build only what the phase lists;
+  - mark any point the design does not settle with a `DESIGN-GAP:` comment and report it;
+  - never commit;
+  - run the phase's exit check until it passes.
+
+  After each phase, the orchestrator re-ran the exit check itself, logged the report in
+  HISTORY.md (H-047 to H-061), and committed.
+- **Backend (cce-admin-service), 8 phases:**
+  - M0 stack: Postgres, Keycloak 26.4.7, Mailpit, the gateway stand-in and the service.
+  - 278 unit, migration, web and service tests.
+  - 7 API-level E2E tests (S1 to S6 and the live hard-control check), passing against the real
+    stack.
+  - 16 stand-in tests.
+- **Console (cce-admin-ui), 7 steps:**
+  - 403 unit and component tests at 99.7% coverage.
+  - 6 Playwright browser tests (sign-in through the real Keycloak login page, then CUJ 2 to 6
+    for S2 to S6), passing against the real stack.
+  - The Docker verify stage passes on Node 20, and the image builds.
+- **DESIGN-GAPs:** about 72 across 15 phases. Most were small details the design did not name:
+  texts, labels, constraint names, step names. These defects were missed by both review rounds:
+  1. Keycloak 26.4.7 never puts `auth_time` in password-grant tokens, so AD-05's assumption fails
+     for E2E tokens (browser sign-in is fine).
+  2. The imported test administrator needs `default-roles-cce` for the account console.
+  3. Two phases of the service design contradict each other: role create and delete must return
+     502 on a Keycloak failure, but the resolve step had removed their operation names. The
+     console does not know them.
+  4. Within the service plan, "commit each database step" contradicts "one locked transaction
+     across Keycloak calls" for flows 5.2 to 5.4.
+  5. The console design gives no way to reach the create-user page.
+  6. The console plan's method-style props fail its own lint rule (`unbound-method`).
+  7. A runtime bug no prose review could see: Hibernate re-read JSON as a different number type
+     and tried to UPDATE the append-only `audit_log`. It was fixed with `@Immutable`.
+  8. The image check assumes a host-run service, but the compose service binds to 127.0.0.1.
+- **Service fixes needed by the E2E phase:** none. **Backend defects found by the browser
+  tests:** none.
+- **Other findings:**
+  - `npm audit` reports 14 vulnerabilities at the D-05 pins (2 critical, 1 high). The fixes need
+    major-version bumps.
+  - Unit tests can time out at 5 s under heavy machine load.
+- **Cost:** 15 implementation agents, about 3.3 million subagent tokens (124k to 294k each).
+- **Snapshot:** tag `step-04`.
