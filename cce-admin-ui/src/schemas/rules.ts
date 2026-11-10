@@ -49,3 +49,25 @@ export const PERMISSION_DESCRIPTION_MAX = 1000;
 export const PERMISSION_CATEGORY_MAX = 50;
 /** 0 to 200 explicit rows per save. */
 export const PERMISSION_ROWS_MAX = 200;
+
+// ---------------------------------------------------------------------------------------------
+// User (admin-service §4.4, "User"; §4.5, `POST /users`, `PUT /users/:id/roles`, search on
+// `GET /users`)
+// ---------------------------------------------------------------------------------------------
+
+/** Lower-case letters, digits and `. _ -`, starting with a letter or digit. */
+export const USERNAME_PATTERN = /^[a-z0-9][a-z0-9._-]*$/;
+export const USERNAME_MIN = 3;
+export const USERNAME_MAX = 50;
+/** Up to 254 characters, a valid address. */
+export const EMAIL_MAX = 254;
+/** First and last name: 1 to 100 characters each. */
+export const PERSON_NAME_MIN = 1;
+export const PERSON_NAME_MAX = 100;
+/** Free text, up to 50 characters (AD-09); the list filter matches it exactly. */
+export const FACILITY_SCOPE_MAX = 50;
+/** `POST /users` takes 1 to 20 role ids; `PUT /users/:id/roles` takes 0 to 20. */
+export const USER_ROLES_MIN_ON_CREATE = 1;
+export const USER_ROLES_MAX = 20;
+/** The Users list search `q`: 1 to 100 characters, an empty one is ignored. */
+export const USER_SEARCH_MAX = 100;

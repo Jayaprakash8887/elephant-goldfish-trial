@@ -27,7 +27,9 @@ describe('AppLayout', () => {
         }),
       ),
     );
-    renderRoute('/');
+    // A path whose page makes no request and shows no spinner of its own (since step 5, `/`
+    // opens the Users list).
+    renderRoute('/no/such/page');
     expect(screen.getByRole('status')).toHaveTextContent('Loading…');
     const header = screen.getByRole('banner');
     expect(await within(header).findByText('jane.doe')).toBeInTheDocument();
@@ -37,7 +39,7 @@ describe('AppLayout', () => {
   });
 
   it('records the GET /me request of the default handler', async () => {
-    renderRoute('/');
+    renderRoute('/no/such/page');
     expect(await screen.findByText('cce-admin')).toBeInTheDocument();
     expect(recordedRequests()).toEqual([
       { method: 'GET', path: '/admin/v1/me', query: {}, body: undefined },
@@ -54,7 +56,7 @@ describe('AppLayout', () => {
     expect(alert).toHaveTextContent('You do not have permission to do this.');
     expect(alert).toHaveTextContent('Your user is not active.');
     expectSidebarLinks();
-    expect(screen.getByRole('heading', { name: 'Page not found' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Users' })).toBeInTheDocument();
   });
 
   it('shows a /me 403 without the envelope in the header', async () => {
@@ -67,7 +69,7 @@ describe('AppLayout', () => {
 
   it('calls logout on Sign out', async () => {
     const { user } = renderRoute('/');
-    await screen.findByText('cce-admin');
+    await within(screen.getByRole('banner')).findByText('cce-admin');
     await user.click(screen.getByRole('button', { name: 'Sign out' }));
     expect(logout).toHaveBeenCalledTimes(1);
   });
@@ -83,7 +85,7 @@ describe('AppLayout', () => {
 
   it('redirects / to /users', async () => {
     const { router } = renderRoute('/');
-    await screen.findByText('cce-admin');
+    await within(screen.getByRole('banner')).findByText('cce-admin');
     expect(router.state.location.pathname).toBe('/users');
   });
 });

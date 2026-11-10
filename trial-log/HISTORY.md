@@ -2845,3 +2845,22 @@ DESIGN-GAPs (4): shade plugin writes dependency-reduced-pom.xml into the source 
 Orchestrator: added the reduced pom to .gitignore; re-ran both verifies (exit 0).
 ````
 
+### H-055 · 2026-11-10 16:58 UTC · orchestrator action · Implement admin-ui step 5 (F4 users)
+
+- **Actor:** Orchestrator -> fresh implementation agent
+
+**Input** (what was asked or run):
+
+````text
+Fresh agent, same brief. Scope: UI step 5, F4 users list, create and edit.
+````
+
+**Output** (what came back):
+
+````markdown
+Agent report (condensed): users API + hooks, debounce hook, user schemas, StatusBadge, 8 user components, UsersListPage, UserCreatePage, UserEditPage; routes /users, /users/new, /users/:id.
+Check passed: 23 files / 364 tests; coverage 99.71% stmts, 97.12% branches. Exit rows F4 (paginated filtered list, create and edit flows, 502 on create) and F1 403 inline on Users.
+DESIGN-GAPs (8): resetPage() + filter write overwrite each other in React Router (done in one update); no link to /users/new anywhere in the design (added "New user"); role-list loading/error needs a prop the forms lack; who builds CreateUserRequest (page vs form contradiction); invalid status in URL; result naming text; >500th held role name; several missing texts.
+Orchestrator re-ran the check: exit 0.
+````
+

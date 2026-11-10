@@ -60,7 +60,8 @@ describe('bootstrap', () => {
     const root = newRoot();
     await act(() => bootstrap(root));
     const screen = within(root);
-    expect(await screen.findByText('cce-admin')).toBeInTheDocument();
+    // Scoped to the header: since step 5 the Users list also shows the username cce-admin.
+    expect(await within(screen.getByRole('banner')).findByText('cce-admin')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Users' })).toBeInTheDocument();
   });
 });

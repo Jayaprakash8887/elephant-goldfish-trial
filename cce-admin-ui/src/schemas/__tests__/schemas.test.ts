@@ -11,8 +11,12 @@ import {
   permissionsFormSchema,
 } from '../permissionSchemas';
 import { createRoleSchema, roleDisplaySchema } from '../roleSchemas';
+import { createUserSchema, profileSchema, userRolesSchema } from '../userSchemas';
 import {
+  EMAIL_MAX,
+  FACILITY_SCOPE_MAX,
   PAGE_SIZES,
+  PERSON_NAME_MAX,
   PERMISSION_CATEGORY_MAX,
   PERMISSION_DESCRIPTION_MAX,
   PERMISSION_METHODS,
@@ -22,7 +26,11 @@ import {
   ROLE_DISPLAY_NAME_MAX,
   ROLE_NAME_MAX,
   ROLE_NAME_MIN,
+  USER_ROLES_MAX,
+  USER_SEARCH_MAX,
   USER_STATUSES,
+  USERNAME_MAX,
+  USERNAME_MIN,
 } from '../rules';
 
 const validRole = {
@@ -275,5 +283,141 @@ describe('permissionsFormSchema (console-only rules)', () => {
     expect(formIssues(rows(PERMISSION_ROWS_MAX + 1))).toEqual([
       `permissions: At most ${PERMISSION_ROWS_MAX} rules.`,
     ]);
+  });
+});
+
+const ROLE_A = '20000000-0000-4000-8000-000000000003';
+
+const validUser = {
+  username: 'jane.doe',
+  email: 'jane.doe@cce.local',
+  firstName: 'Jane',
+  lastName: 'Doe',
+  facilityScope: '',
+  roleIds: [ROLE_A],
+};
+
+function userErrors(values: Partial<typeof validUser>) {
+  const result = createUserSchema.safeParse({ ...validUser, ...values });
+  return result.success ? {} : result.error.flatten().fieldErrors;
+}
+
+const ids = (count: number) =>
+  Array.from({ length: count }, (_, i) => `20000000-0000-4000-8000-${String(i).padStart(12, '0')}`);
+
+describe('createUserSchema', () => {
+  it('accepts a valid user and trims every string', () => {
+    expect(
+      createUserSchema.parse({
+        username: ' jane.doe ',
+        email: ' jane.doe@cce.local ',
+        firstName: ' Jane ',
+        lastName: ' Doe ',
+        facilityScope: ' FAC-01 ',
+        roleIds: [ROLE_A],
+      }),
+    ).toEqual({
+      username: 'jane.doe',
+      email: 'jane.doe@cce.local',
+      firstName: 'Jane',
+      lastName: 'Doe',
+      facilityScope: 'FAC-01',
+      roleIds: [ROLE_A],
+    });
+  });
+
+  it.each(['abc', 'jane.doe', 'j_doe-2', '0user', 'e2e-cuj2a-1731234567890123'])(
+    'accepts the username %s',
+    (username) => {
+      expect(userErrors({ username })).toEqual({});
+    },
+  );
+
+  it.each([
+    ['upper case', 'Jane.Doe'],
+    ['a leading dot', '.jane'],
+    ['a leading hyphen', '-jane'],
+    ['a space', 'jane doe'],
+    ['an @', 'jane@doe'],
+  ])('rejects a username with %s', (_case, username) => {
+    expect(userErrors({ username }).username).toBeDefined();
+  });
+
+  it(`accepts ${USERNAME_MIN} to ${USERNAME_MAX} characters only`, () => {
+    expect(userErrors({ username: 'ab' }).username).toBeDefined();
+    expect(userErrors({ username: 'a'.repeat(USERNAME_MIN) })).toEqual({});
+    expect(userErrors({ username: 'a'.repeat(USERNAME_MAX) })).toEqual({});
+    expect(userErrors({ username: 'a'.repeat(USERNAME_MAX + 1) }).username).toBeDefined();
+  });
+
+  it('requires a valid email of at most 254 characters', () => {
+    expect(userErrors({ email: '' }).email).toContain('Enter an email address.');
+    expect(userErrors({ email: 'jane.doe' }).email).toContain('Enter a valid email address.');
+    // 64 + 1 + 189 = 254 characters, with domain labels of at most 63.
+    const domain = ['b'.repeat(60), 'c'.repeat(60), 'd'.repeat(60), 'ee', 'com'].join('.');
+    const at254 = `${'a'.repeat(64)}@${domain}`;
+    expect(at254).toHaveLength(EMAIL_MAX);
+    expect(userErrors({ email: at254 })).toEqual({});
+    expect(userErrors({ email: `a${at254}` }).email).toContain(`At most ${EMAIL_MAX} characters.`);
+  });
+
+  it('requires a first and last name of at most 100 characters', () => {
+    expect(userErrors({ firstName: ' ' }).firstName).toContain('Enter a first name.');
+    expect(userErrors({ lastName: '' }).lastName).toContain('Enter a last name.');
+    expect(userErrors({ firstName: 'x'.repeat(PERSON_NAME_MAX) })).toEqual({});
+    expect(userErrors({ lastName: 'x'.repeat(PERSON_NAME_MAX + 1) }).lastName).toBeDefined();
+  });
+
+  it(`allows an empty facility scope of at most ${FACILITY_SCOPE_MAX} characters`, () => {
+    expect(userErrors({ facilityScope: '' })).toEqual({});
+    expect(userErrors({ facilityScope: 'x'.repeat(FACILITY_SCOPE_MAX) })).toEqual({});
+    expect(
+      userErrors({ facilityScope: 'x'.repeat(FACILITY_SCOPE_MAX + 1) }).facilityScope,
+    ).toBeDefined();
+  });
+
+  it(`requires 1 to ${USER_ROLES_MAX} roles on create (console-only rule)`, () => {
+    expect(userErrors({ roleIds: [] }).roleIds).toContain('Choose at least one role.');
+    expect(userErrors({ roleIds: ids(USER_ROLES_MAX) })).toEqual({});
+    expect(userErrors({ roleIds: ids(USER_ROLES_MAX + 1) }).roleIds).toContain(
+      `At most ${USER_ROLES_MAX} roles.`,
+    );
+  });
+});
+
+describe('profileSchema', () => {
+  it('accepts a profile with an empty facility scope', () => {
+    expect(
+      profileSchema.parse({ email: ' a@b.de ', firstName: 'A', lastName: 'B', facilityScope: '' }),
+    ).toEqual({ email: 'a@b.de', firstName: 'A', lastName: 'B', facilityScope: '' });
+  });
+
+  it('rejects an invalid email, empty names and a long facility scope', () => {
+    const result = profileSchema.safeParse({
+      email: 'not-an-address',
+      firstName: '',
+      lastName: '',
+      facilityScope: 'x'.repeat(FACILITY_SCOPE_MAX + 1),
+    });
+    expect(Object.keys(result.error?.flatten().fieldErrors ?? {}).sort()).toEqual([
+      'email',
+      'facilityScope',
+      'firstName',
+      'lastName',
+    ]);
+  });
+});
+
+describe('userRolesSchema (console-only rule)', () => {
+  it(`allows zero to ${USER_ROLES_MAX} roles on edit`, () => {
+    expect(userRolesSchema.safeParse({ roleIds: [] }).success).toBe(true);
+    expect(userRolesSchema.safeParse({ roleIds: ids(USER_ROLES_MAX) }).success).toBe(true);
+    expect(userRolesSchema.safeParse({ roleIds: ids(USER_ROLES_MAX + 1) }).success).toBe(false);
+  });
+});
+
+describe('user search length', () => {
+  it(`is at most ${USER_SEARCH_MAX} characters`, () => {
+    expect(USER_SEARCH_MAX).toBe(100);
   });
 });
