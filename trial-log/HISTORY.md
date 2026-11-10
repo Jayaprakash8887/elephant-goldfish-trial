@@ -2766,3 +2766,22 @@ DESIGN-GAPs (11, all small, marked in code): all MSW handlers created now (handl
 Orchestrator re-ran the check: exit 0.
 ````
 
+### H-051 · 2026-11-10 16:23 UTC · orchestrator action · Implement admin-service phase 3 (web, security, audit, /health, /me)
+
+- **Actor:** Orchestrator -> fresh implementation agent
+
+**Input** (what was asked or run):
+
+````text
+Fresh agent, same brief. Scope: Phase 3, web foundation, security, audit writer, /health and /me (B-03 to B-06 partly, B-10 to B-13, B-20).
+````
+
+**Output** (what came back):
+
+````markdown
+Agent report (condensed): AdminProperties (validated), Jackson config with trimming, OpenAPI config, SecurityConfig (JWKS, issuer, audience), roles claim reader, CurrentUser filter (B-12), PermissionCheckFilter (AntPathMatcher, one query, switch), error writer, audit writer, error codes and exception handler, /health and /me controllers, Dockerfile; 57 new tests.
+Exit check: ./mvnw verify 105 tests pass; docker build OK; against the running stack: /health UP with DB UP; bad token -> 401 UNAUTHENTICATED; real admin token -> 403 FORBIDDEN "no active user" (no bootstrap until phase 4, as the design expects).
+DESIGN-GAPs (4): error-shape test needs endpoints Phase 3 does not have (test-only controller); field name for unsupported content type and class-level body errors ("body"); OpenAPI title/version text.
+Orchestrator re-ran ./mvnw verify: exit 0.
+````
+

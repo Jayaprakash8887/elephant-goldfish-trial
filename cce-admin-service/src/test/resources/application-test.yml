@@ -1,4 +1,31 @@
 # The test profile. The datasource comes from @ServiceConnection (DatabaseTestBase).
+# The JwtDecoder comes from TestSecurityConfig; issuer and audience equal the values TestJwtFactory
+# signs with. No value here is a real secret or a reachable service.
 spring:
   jpa:
     show-sql: false
+admin:
+  jwt:
+    issuer: https://test-issuer.local/realms/cce
+    audience: gateway-service
+    jwk-set-uri: https://test-issuer.local/realms/cce/protocol/openid-connect/certs
+    roles-claim-path: realm_access.roles
+  keycloak:
+    server-url: http://keycloak.test.invalid/auth
+    realm: cce
+    client-id: cce-admin-service
+    client-secret: test-only-not-a-secret
+    connect-timeout: 2s
+    read-timeout: 10s
+    action-email-lifespan: 43200
+    action-email-client-id: ""
+    action-email-redirect-uri: ""
+  gateway:
+    base-url: http://gateway.test.invalid
+    sync-path: /api/permissions/sync-to-keycloak
+    connect-timeout: 2s
+    read-timeout: 10s
+  permission:
+    check-enabled: true
+  bootstrap:
+    admin-username: ""

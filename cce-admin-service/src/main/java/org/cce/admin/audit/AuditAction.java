@@ -1,0 +1,21 @@
+package org.cce.admin.audit;
+
+/** The audit actions of section 8. */
+public enum AuditAction {
+    USER_CREATED,
+    USER_UPDATED,
+    USER_ACTIVATED,
+    USER_DEACTIVATED,
+    USER_LOCKED,
+    USER_ROLES_UPDATED,
+    USER_PASSWORD_RESET_REQUESTED,
+    ROLE_CREATED,
+    ROLE_UPDATED,
+    ROLE_DELETED,
+    ROLE_MENUS_UPDATED,
+    ROLE_PERMISSIONS_UPDATED,
+    ROLE_SYNC_REQUESTED,
+    MENU_CREATED,
+    MENU_UPDATED,
+    MENU_DELETED
+}

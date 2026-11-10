@@ -1,0 +1,4 @@
+target/
+.env
+gateway-stub/target/
+.git

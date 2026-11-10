@@ -15,8 +15,48 @@ spring:
     hibernate:
       ddl-auto: validate
     open-in-view: false
+  jackson:
+    deserialization:
+      fail-on-unknown-properties: true
 server:
   port: ${SERVER_PORT:8085}
+  # AD-19: Tomcat's own forwarded-header handling, trusting only TRUSTED_PROXIES. (?!) matches no address.
+  forward-headers-strategy: native
+  tomcat:
+    remoteip:
+      internal-proxies: "${TRUSTED_PROXIES:(?!)}"
+springdoc:
+  api-docs:
+    path: /admin/v1/api-docs
+    enabled: ${SPRINGDOC_ENABLED:true}
+  swagger-ui:
+    path: /admin/v1/swagger-ui
+    enabled: ${SPRINGDOC_ENABLED:true}
+admin:
+  jwt:
+    issuer: ${JWT_ISSUER:}                                   # required
+    audience: ${JWT_AUDIENCE:}                               # required
+    jwk-set-uri: ${JWT_JWK_SET_URI:${JWT_ISSUER:}/protocol/openid-connect/certs}
+    roles-claim-path: ${JWT_ROLES_CLAIM_PATH:realm_access.roles}
+  keycloak:
+    server-url: ${KEYCLOAK_SERVER_URL:}                      # required
+    realm: ${KEYCLOAK_REALM:}                                # required
+    client-id: ${KEYCLOAK_ADMIN_CLIENT_ID:cce-admin-service}
+    client-secret: ${KEYCLOAK_ADMIN_CLIENT_SECRET:}          # required
+    connect-timeout: ${KEYCLOAK_CONNECT_TIMEOUT:2s}
+    read-timeout: ${KEYCLOAK_READ_TIMEOUT:10s}
+    action-email-lifespan: ${KEYCLOAK_ACTION_EMAIL_LIFESPAN:43200}
+    action-email-client-id: ${KEYCLOAK_ACTION_EMAIL_CLIENT_ID:}
+    action-email-redirect-uri: ${KEYCLOAK_ACTION_EMAIL_REDIRECT_URI:}
+  gateway:
+    base-url: ${GATEWAY_BASE_URL:}                           # required
+    sync-path: ${GATEWAY_SYNC_PATH:/api/permissions/sync-to-keycloak}
+    connect-timeout: ${GATEWAY_CONNECT_TIMEOUT:2s}
+    read-timeout: ${GATEWAY_READ_TIMEOUT:10s}
+  permission:
+    check-enabled: ${PERMISSION_CHECK_ENABLED:true}
+  bootstrap:
+    admin-username: ${BOOTSTRAP_ADMIN_USERNAME:}
 ---
 # Outside the test profile, local values come from the git-ignored .env file (section 9.3).
 spring:

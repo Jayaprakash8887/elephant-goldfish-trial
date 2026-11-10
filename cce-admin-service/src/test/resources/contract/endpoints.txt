@@ -1,0 +1,2 @@
+GET /admin/v1/health
+GET /admin/v1/me

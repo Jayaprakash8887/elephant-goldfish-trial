@@ -2,18 +2,23 @@ package org.cce.admin.support;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
+import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import org.testcontainers.containers.PostgreSQLContainer;
 
 /**
  * Base class of every database test. One Postgres container (the singleton-container pattern) and
- * one Spring context are shared by every subclass. Each test starts from the seed rows only.
+ * one Spring context are shared by every subclass. Each test starts from the seed rows only. Web and
+ * service tests share the context: MockMvc is configured, and tokens come from {@link TestJwtFactory}.
  */
 @SpringBootTest
 @ActiveProfiles("test")
+@AutoConfigureMockMvc
+@Import(TestSecurityConfig.class)
 public abstract class DatabaseTestBase {
 
     @ServiceConnection
