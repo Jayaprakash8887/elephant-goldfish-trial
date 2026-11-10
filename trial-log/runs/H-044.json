@@ -1,0 +1,100 @@
+{
+  "duration_api_ms": 2618488,
+  "stop_reason": "stop_sequence",
+  "session_id": "02eb6e8f-75ce-4bca-bef2-98c5fc29ddf1",
+  "total_cost_usd": 16.664731600000003,
+  "usage": {
+    "input_tokens": 10,
+    "cache_creation_input_tokens": 44112,
+    "cache_read_input_tokens": 2932171,
+    "output_tokens": 20634,
+    "output_tokens_details": {
+      "thinking_tokens": 9039
+    },
+    "server_tool_use": {
+      "web_search_requests": 0,
+      "web_fetch_requests": 0
+    },
+    "service_tier": "standard",
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 44112,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "inference_geo": "global",
+    "iterations": [
+      {
+        "input_tokens": 2,
+        "output_tokens": 2106,
+        "cache_read_input_tokens": 607247,
+        "cache_creation_input_tokens": 775,
+        "cache_creation": {
+          "ephemeral_5m_input_tokens": 0,
+          "ephemeral_1h_input_tokens": 775
+        },
+        "type": "message"
+      }
+    ],
+    "speed": "standard",
+    "fallback_credit": null
+  },
+  "modelUsage": {
+    "claude-opus-5-5": {
+      "inputTokens": 184,
+      "outputTokens": 303150,
+      "thinkingTokens": 93267,
+      "cacheReadInputTokens": 29225298,
+      "cacheCreationInputTokens": 594492,
+      "cacheCreationEphemeral5mInputTokens": 0,
+      "cacheCreationEphemeral1hInputTokens": 594492,
+      "webSearchRequests": 0,
+      "costUSD": 16.664731600000003,
+      "contextWindow": 1000000,
+      "maxOutputTokens": 128000,
+      "canonicalModel": "claude-opus-5-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  },
+  "permission_denials": [],
+  "terminal_reason": "api_error",
+  "fast_mode_state": "off",
+  "fast_mode_disabled_reason": "sdk_opt_in_required",
+  "subagent_stats": {
+    "spawned": 0,
+    "requested": {
+      "background": 0,
+      "foreground": 0,
+      "unset": 0
+    },
+    "started_in_background": 0,
+    "max_depth": 0,
+    "spawned_by_subagents": 0,
+    "completed": 0,
+    "failed": 0,
+    "killed": {
+      "parent": 0,
+      "user": 0,
+      "system": 0
+    },
+    "refused": {
+      "depth_limit": 0,
+      "concurrency_limit": 0,
+      "budget": 0
+    },
+    "by_type": {}
+  },
+  "safety_stops": 0,
+  "is_error": true,
+  "num_turns": 13,
+  "subtype": "success",
+  "api_error_status": 429,
+  "api_error_origin": "first_party",
+  "api_error": "usage_limit_reached",
+  "result": "You've hit your 5-hour limit \u00b7 resets 8:50pm (Asia/Kolkata)",
+  "type": "result",
+  "duration_ms": 182465,
+  "uuid": "180f66ad-d9ca-4d3f-bad4-b9a47ba861a7",
+  "queued_turn_count": 0,
+  "result_index": 0,
+  "credential_expires_at": "2026-11-25T12:02:27.741Z"
+}

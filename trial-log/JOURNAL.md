@@ -186,3 +186,47 @@ your own tasks", so each entry records:
 - **Cost:** estimated at list price, $71.32 for admin-service and $46.65 for admin-ui
   ($117.97 in total, 246 model turns). Token counts are in timeline.md.
 - **Snapshot:** tag `step-02`.
+
+## Step 03 · Goldfish review and resolution (`/egm:egm-review`, `/egm:egm-resolve`), two rounds
+
+- **When:** 2026-11-10, 13:43–16:05 UTC. That includes about 40 minutes stopped at the usage
+  limit (C-18).
+- **Round 1, full five-stage review** (uninterrupted preset, fresh headless sessions `8a09292b`
+  and `d157201e`). Each design took about 37 minutes and 14 reviewer subagents of the plugin's
+  own types (`egm:egm-zoom-out`, `-comprehension`, `-design`, `-structural`, `-style`,
+  `-implementation-readiness`, `-codebase-details`, `-inventive-catalyst`, `-synthesizer`).
+  - admin-service: 145 stage findings, merged into 33 actions (3 Blockers, 24 Majors, 6 Nits).
+  - admin-ui: 30 actions (1 Blocker, 24 Majors, 5 groups of Nits). The console's contract
+    mapping was confirmed correct.
+- **Author triage:** the stages disagreed on direction (C-16). The author followed Stage 8, which
+  favoured removing mechanisms over adding them, and explicitly decided the five reopened
+  decisions:
+  - AD-12: no sync on role delete.
+  - AD-16: role create returns 201 with a warning when its sync fails.
+  - AD-15: the bootstrapper does not sync.
+  - AD-17: a minimal permission check that uses AntPathMatcher, with no cache.
+  - AD-06: only the role that was synced is marked.
+  - AD-02: the table is created only when it is absent, and never altered.
+
+  For Blocker CA-01 (existing Keycloak users locked out), the service now links an existing
+  account on create.
+- **Resolve, round 1** (in each Elephant session): 39 fixes for admin-service and 36 for
+  admin-ui, with nothing contested. The console design was then cross-checked against the
+  resolved contract (H-040).
+- **Round 2, Stage 9 only** (sessions `213e827e` and `c7d68ef0`):
+  - admin-service: 1 Blocker, 26 Majors, 36 Nits. 18 findings re-opened, 6 of them caused by
+    round-1 fix text.
+  - admin-ui: 0 Blockers, 11 Majors, 23 Nits.
+
+  The review did not converge (C-17). The author resolved round 2 once (66 and 34 fixes). The
+  usage limit interrupted both resolves, and they were recovered by resuming each session
+  (C-18).
+- **Outputs:**
+  - The resolved designs, `docs/designs/cce-admin-service.md` (2,077 lines) and
+    `docs/designs/cce-admin-ui.md` (2,309 lines).
+  - Stage reports, consolidated reports and `goldfish_review_report*.md` in `egm/<design>/`.
+- **Decisions by the author:** see [QA.md](QA.md) and the resolve prompts (H-036, H-037, H-043,
+  H-044). A third review round was not run. The implementation's exit checks take over (C-17).
+- **Cost:** about $189 estimated at list price, for 2 full reviews, 2 Stage 9 re-reviews, 6
+  resolve turns, 1 cross-check and 2 recovery turns.
+- **Snapshot:** tag `step-03`.

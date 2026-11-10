@@ -61,17 +61,19 @@ reader needs them first.
     creates a Keycloak realm role for each permission name. A role can be assigned to users only
     after its realm role exists (PRD §4, §9). The console triggers the sync indirectly, by
     saving permissions, or directly, with Re-sync. Details: admin-service
-    [§5](cce-admin-service.md#5-flows-and-order-of-operations) (the gateway sync procedure).
+    [§5.10](cce-admin-service.md#510-gateway-sync-procedure).
 *   **The stand-in gateway.** gateway-service does not run locally. A small local stand-in
     receives the service's sync call and creates the realm roles. It has an `ok` mode and a
     `fail` mode, switched at `http://localhost:8090/_stub/mode`. It is not in the console's
     request path: the console's calls still go from the Vite proxy to the service. Details:
-    admin-service [AD-11](cce-admin-service.md#local-stand-in-for-the-gateway-sync-ad-11).
-*   **Operator reconciliation.** When a write fails part-way, the service records the partial
-    state in its `audit_log` table and returns a 502 that names the audit row. An operator, a
-    person with access to the database and the Keycloak admin console, reads that row and repairs
-    the state by hand. The console has no tool for this; it shows the ids the operator needs.
-    Details: admin-service [§8](cce-admin-service.md#8-audit-b-50).
+    admin-service [AD-11](cce-admin-service.md#author-decisions-in-this-design).
+*   **Recovery and operator reconciliation.** When a write fails part-way, the service records
+    the partial state in its `audit_log` table and returns a 502 that names the audit row. A user
+    write that failed part-way (create, profile, status, roles) completes when the administrator
+    submits the same request again (admin-service §5, "Recovery by resubmitting"). If it fails
+    again, an operator, a person with access to the database and the Keycloak admin console,
+    reads the audit row and repairs the state by hand. The console has no tool for this; it shows
+    the ids the operator needs. Details: admin-service [§8](cce-admin-service.md#8-audit-b-50).
 
 ## The Problem
 
@@ -93,7 +95,7 @@ edits can go wrong without anyone noticing (PRD §2):
     Keycloak and the gateway in sequence. If a later step fails, earlier steps stay applied
     (PRD §9). A console that shows a generic "something went wrong", or that updates the screen
     before the server confirms, hides that partial state from the admin, who must either act
-    (Re-sync) or pass it to an operator.
+    (Re-sync, or submit the same request again) or pass it to an operator.
 *   **The order of operations matters.** A role's realm role has to exist in Keycloak (created by
     the gateway sync) before the role can be assigned to a user (PRD §9, scenario S6). An admin
     who does not see that a sync failed will try to assign a role that Keycloak does not have
@@ -116,10 +118,11 @@ definition of done in PRD §11. Goals 6 to 9 name their own checks.
 1.  **Every frontend requirement is met.** F-01 to F-15 and the §8.3 variables and scripts meet
     their PRD acceptance criteria.
 2.  **An administrator can carry out scenarios S2 to S6 from the console alone, on the success
-    paths, and can recover from a failed gateway sync with Re-sync (S6).** Onboarding a user,
-    creating and configuring a role, changing a user's roles, and deactivating and re-activating
-    a user need neither SQL nor the Keycloak admin console. Other partial failures are shown and
-    handed to an operator (Goal 3).
+    paths, and can recover from a failed gateway sync with Re-sync (S6) and from a user write
+    that failed part-way by submitting it again.** Onboarding a user, creating and configuring a
+    role, changing a user's roles, and deactivating and re-activating a user need neither SQL nor
+    the Keycloak admin console. A failure that repeats is shown and handed to an operator
+    (Goal 3).
 3.  **No partial failure is hidden.** A `KEYCLOAK_SYNC_FAILED` response (HTTP 502) always shows
     one dedicated component, `SyncFailedNotice`, on the screen given for its operation in the
     [`SyncFailedNotice` table](#syncfailednotice). It says what the service recorded and what to
@@ -138,7 +141,8 @@ definition of done in PRD §11. Goals 6 to 9 name their own checks.
 7.  **Signing in cannot be bypassed.** No build of the console renders a route without a
     Keycloak session. There is no runtime flag and no static-token fallback (PRD §6, §9, F-01).
     Checks: `bootstrap.test.tsx` (nothing renders while sign-in is pending) and `config.test.ts`
-    (the configuration reads only the four §8.3 variables).
+    (a scan of the source shows `import.meta.env` is read only in `src/config.ts`, and only for
+    the four §8.3 variables; setting `VITE_AUTH_ENABLED` or `VITE_AUTH_TOKEN` changes nothing).
 8.  **It builds and passes its tests in both places it runs.** `npm run build`, `npm run lint`
     and `npm run test:ci` pass on the author's workstation (Node 22.22, npm 10.9) and inside the
     reference Docker build on `node:20-alpine`, pinned to `node:20.20.2-alpine` (PRD §6, §11,
@@ -204,7 +208,9 @@ deviations.
 
 ## Author Decisions in This Design
 
-Decisions the author took for this design. Decisions both designs need are in
+<a id="points-about-the-contract-raised-by-this-design-decided"></a>
+Decisions the author took for this design. (The anchor above keeps the admin-service design's
+link to "CQ-1" working; that decision is now UI-AD-05.) Decisions both designs need are in
 [author-decisions.md](author-decisions.md) under a D- ID.
 
 | ID | Question | Decision | Why |
@@ -443,7 +449,7 @@ importing `hooks/`), and a direct `fetch` call outside `client.ts`.
     replacement is `src/test/fakeAuth.ts`, which has the same named exports. A type-check
     statement in it, `({ initAuth, getToken, refreshToken, login, logout }) satisfies typeof
     import('../auth/keycloak')`, makes a change to the real module's exports fail `tsc -b`. The
-    fake's functions are `vi.fn()` spies with default behaviour (resolve; token `'test-token'`;
+    fake's functions are `vi.fn()` spies with default behavior (resolve; token `'test-token'`;
     `refreshToken` resolves `true`), reinstalled after every test.
 *   `src/auth/__tests__/keycloak.test.ts` is the only test file that depends on the `keycloak-js`
     API. It calls `vi.unmock` on the module, mocks the `keycloak-js` package and uses fake
@@ -464,16 +470,21 @@ importing `hooks/`), and a direct `fetch` call outside `client.ts`.
     one rule from the contract: only the optional envelope fields (`pagination`, `warnings`,
     `details`, `partialState`) are left out when absent; every other response field is always
     present and is `null` when it has no value. So a response field that can be empty is typed
-    `field: T | null`, never `field?: T`. Request bodies follow the optional fields that
+    `field: T | null`, never `field?: T`. The one exception is a warning, which carries only the
+    reference fields its code defines (admin-service §4.1); `contract.ts` types it as a union on
+    `code` (item 27). Request bodies follow the optional fields that
     admin-service §4.5 marks with `?`. Ids are `string` (UUID) except permission row ids, which
     are `number`. Timestamps are `string` (ISO-8601 UTC). The console does not call
     `GET /me/menus`, `GET /health` or `DELETE /menus/:id`, so their shapes are not in the module.
-*   **`src/api/client.ts`** exposes one request function. It builds the URL as
+*   **`src/api/client.ts`** exposes two request functions: `apiRequest` for responses with the
+    envelope, and `apiDelete` for the one 204 endpoint (item 29). It builds the URL as
     `${apiBaseUrl}/admin/v1${path}` and leaves out query parameters that are undefined, null or
     empty strings. It sends `Authorization: Bearer <token>` and `Accept: application/json`,
     plus `Content-Type: application/json` when there is a body (F-02). If `getToken()` returns
     no token, it calls `login()` and throws a 401 `ApiError`. It parses the envelope and returns
-    it typed from `contract.ts`. A 204 response (`DELETE /roles/:id`) returns no data. Request
+    it typed from `contract.ts`. A 2xx response without the envelope (empty, or HTML from a
+    misrouted proxy) becomes an `ApiError` with code `CLIENT_UNEXPECTED_RESPONSE`, except the
+    204 from `DELETE /roles/:id`, which `apiDelete` expects. Request
     bodies contain only the properties the contract defines, because the service rejects any
     other property with 400 `VALIDATION_ERROR` (admin-service §4.1); each page builds its body
     from named fields and never spreads form state into it.
@@ -546,10 +557,15 @@ by its `kind` and `code`, never by parsing `message`.
 *   **Field mapping.** `VALIDATION_ERROR` details are mapped to React Hook Form fields by
     `field`. The JSON path form (`permissions[2].uriPattern`) becomes React Hook Form's form
     (`permissions.2.uriPattern`). A detail whose field is not a field of that form (for example
-    `body`, `id` or `pageSize`) is shown at the top of the form. Conflict codes map to fields:
-    `USERNAME_IN_USE` to username, `EMAIL_IN_USE` to email, `DUPLICATE_ROLE_NAME` to name (also
-    returned when a Keycloak realm role with that name already exists), `DUPLICATE_MENU_KEY` to
-    key.
+    `body`, `id` or `pageSize`) is shown at the top of the form. Conflict codes map to fields,
+    and the field shows the server message, because it says why (admin-service §4.2):
+    *   `USERNAME_IN_USE` to username and `EMAIL_IN_USE` to email. Besides another local user,
+        they cover a Keycloak account with no local user that cannot be linked (it is disabled,
+        or the other field differs).
+    *   `DUPLICATE_ROLE_NAME` to name. Besides an existing role, it covers `api_permissions` rows
+        that already use the name and a Keycloak realm role with the name, for example one left
+        by a deleted role until a later sync removes it.
+    *   `DUPLICATE_MENU_KEY` to key.
 *   **Role errors.** `ROLE_NOT_SYNCED` and `ROLE_NOT_ASSIGNABLE` carry one detail per role, with
     `field` `roleIds[i]` (admin-service §4.1). The console keeps the `roleIds` array it sent,
     maps each index back to the role, and shows under the role checkboxes "Not synced yet:
@@ -565,27 +581,34 @@ by its `kind` and `code`, never by parsing `message`.
 
 It takes the `partialState`, the server `message`, and optional actions (a Re-sync button, a
 link). It always shows the server message and, when present, the Keycloak user id and the audit
-log id, labelled "For the operator:", so an operator can find the audit row.
+log id, labeled "For the operator:", so an operator can find the audit row.
 
 *   **When `completedSteps` is empty**, for every operation except `ROLE_SYNC`, it shows "The
-    service recorded no change. You can try again." The form keeps its input, and its own
-    submit button stays enabled. This stays true after a timeout, because the service writes
-    no audit row unless a step completed.
+    service recorded no change. You can try again." This stays true after a timeout: a failure
+    before anything changed writes no audit row (admin-service §8, rule 4), and a Keycloak
+    account that a timed-out create left behind is linked when the form is submitted again.
 *   **When `completedSteps` is not empty**, it shows the operation's text from the table below.
 *   **`ROLE_SYNC`** always shows "The sync failed. The saved permissions are unchanged. Use
-    Re-sync."
+    Re-sync." Its `completedSteps` is always empty, but the service has written an audit row and
+    set the role to `FAILED`.
+*   **Resubmitting.** For every user operation, the form or button that sent the request stays
+    usable and keeps the values the administrator sent, even though the refetch rule reloads the
+    page's data, so that the same request can be sent again (admin-service §5, "Recovery by
+    resubmitting"). A form resets to the server's values only after a success. The mechanism:
+    a user form reads its initial values once, when it mounts, and after a successful save
+    resets itself to the user the response returns. It never copies refetched data into its
+    fields.
 
-The table lists the operations whose 502 can report completed steps. Operation names follow
-admin-service §4.2.
+The seven operations are those of admin-service §4.2.
 
 | `operation` | Shown on | Text when steps completed | Action |
 |---|---|---|---|
-| `USER_CREATE` | User create page | "The sign-in account was created in Keycloak, but the user was not saved here. Submit the form again with the same username and email: the service links the existing account. If that fails again, pass the ids below to an operator." | Users list link |
-| `USER_PROFILE_UPDATE` | User edit, Profile section | "Keycloak has the new values. This page shows the old values, which are still stored locally. Pass the ids below to an operator." | none |
-| `USER_STATUS_CHANGE` | Users list row messages; User edit, Status section | "Keycloak may already have the new status, but it was not saved here. Pass the ids below to an operator." | none |
-| `USER_ROLES_UPDATE` | User edit, Roles section | "Some Keycloak role mappings may have changed, but the roles were not saved here. Pass the ids below to an operator." | none |
-| `USER_PASSWORD_RESET` | Users list row messages; User edit, Password section | (never has completed steps; the empty-steps rule applies) | none |
-| `ROLE_PERMISSIONS_SAVE` | Role detail, Permissions tab | "The permissions were saved but not synced. Use Re-sync, and do not assign the role until a sync succeeds." | Re-sync |
+| `USER_CREATE` | User create page | "The sign-in account may exist in Keycloak without a user here. Submit the form again with the same values: the service links the account and finishes. If it fails again, pass the ids below to an operator." | Users list link |
+| `USER_PROFILE_UPDATE` | User edit, Profile section | "Keycloak may have the new values while this page shows the old ones. Save the profile again with the same values. If it fails again, pass the ids below to an operator." | none |
+| `USER_STATUS_CHANGE` | Users list row messages; User edit, Status section | "Keycloak may already have the new status, but it was not saved here. Choose the same status again. If it fails again, pass the ids below to an operator." | none |
+| `USER_ROLES_UPDATE` | User edit, Roles section | "Some Keycloak role mappings may have changed, but the roles were not saved here. Save the same roles again. If it fails again, pass the ids below to an operator." | none |
+| `USER_PASSWORD_RESET` | Users list row messages; User edit, Password section | (always empty; the empty-steps rule applies) | none |
+| `ROLE_PERMISSIONS_SAVE` | Role detail, Permissions tab | "The permissions were saved but not synced. Use Re-sync, and do not assign the role until a sync succeeds." (always has completed steps) | Re-sync |
 | `ROLE_SYNC` | Role detail, Permissions tab | (see the rule above) | Re-sync |
 
 On a `USER_CREATE` 502, `partialState.entityId` is always the id the user will have, but no
@@ -648,7 +671,8 @@ Filters and paging live in the URL search parameters `status`, `roleId`, `facili
     last login (or "Never" when `lastLoginAt` is null).
 *   **Row actions:** "View / edit" (link to `/users/:id`); one status button for each status the
     user does not have ("Activate", "Deactivate", "Lock"); and "Send set-password email". Each
-    opens a `ConfirmDialog` that names the user and the effect. The result of a row action
+    opens a `ConfirmDialog` that names the user and the effect, with the texts in
+    [Fixed UI texts](#fixed-ui-texts). The result of a row action
     (success, error or `SyncFailedNotice`) is shown in a message area above the table that names
     the user.
 
@@ -663,7 +687,8 @@ the service decides whether the role can be assigned (admin-service AD-10).
 One submit sends one `POST /users`; there is no separate sync step. On 201 the console goes to
 `/users/:id` and passes the result in navigation state, so the edit page shows the created
 message from CUJ 2. On 502 the form stays on screen with `SyncFailedNotice` (`USER_CREATE`), and
-the form keeps its input and its submit button.
+the form keeps its input and its submit button, so the administrator can submit the same request
+again, which links the Keycloak account the first attempt created.
 
 #### User edit (F-11)
 
@@ -674,10 +699,12 @@ Each has its own mutation, pending state and inline error area.
     all four fields, and `facilityScope: null` when the field is empty.
 *   **Roles:** the same checkbox list as on create (zero to 20 roles). Save is enabled only when
     the selection differs from the last fetched set, and sends the complete set with
-    `PUT /users/:id/roles`.
+    `PUT /users/:id/roles`. A role the user holds that has no checkbox (not assignable, or
+    beyond the first 500 roles) is listed read-only under "Also held:" and is always included
+    in the request, so a save never removes it silently.
 *   **Status:** the same three status buttons as the row actions, behind a `ConfirmDialog`.
-*   **Password:** "Send set-password email" behind a `ConfirmDialog`; on success it shows "Email
-    sent to {email}." with the address from the response.
+*   **Password:** "Send set-password email" behind a `ConfirmDialog`; on success it shows
+    "Set-password email sent to {email}." with the address from the response.
 
 A user id that does not exist or is malformed shows `NotFoundPanel`.
 
@@ -690,9 +717,12 @@ A table with server-side paging like the Users list (`page` and `pageSize` in th
     (`userCount`), sync badge, and actions. A role with `isAssignable: false` shows the badge
     "Service account, cannot be assigned".
 *   **Actions:** "Open" (link to `/roles/:id`) and "Delete". Delete is not shown for system roles,
-    and is disabled with the reason "Assigned to {n} users" when `userCount` is above 0. Delete
-    opens a `ConfirmDialog`; `ROLE_IN_USE` and `SYSTEM_ROLE_IMMUTABLE` show inline in the
-    message area above the table.
+    and is disabled with the reason "Assigned to {n} users" when `userCount` (local users) is
+    above 0. Delete opens a `ConfirmDialog`; `ROLE_IN_USE` and `SYSTEM_ROLE_IMMUTABLE` show the
+    server message inline in the message area above the table. `ROLE_IN_USE` can come even when
+    `userCount` is 0, because the service also refuses while a Keycloak user holds the role's
+    realm role (admin-service §4.2). After a delete, the name cannot be reused until a later
+    sync removes the realm role (`DUPLICATE_ROLE_NAME`).
 *   **Inline create form** above the table: name, display name and description. The name field
     validates the role-name rule as the user types. A fixed warning under it says: "The name
     cannot be changed later. It is also the Keycloak realm role name and the gateway permission
@@ -747,7 +777,7 @@ The tab reads `GET /roles/:id/permissions`, which returns the rows, `syncStatus`
 *   **Save** is enabled only when `sameRuleSet(current, fetched)` is false. Both sides are
     normalized first (method upper case, strings trimmed, empty description or category treated
     as absent) and compared as sets of (method, pattern, description, category), which is how
-    the service decides a no-op (admin-service §5). Save sends `{ "permissions": [...] }` with
+    the service decides a no-op (admin-service §5.7). Save sends `{ "permissions": [...] }` with
     every explicit row, leaving out description and category when they are empty. A 200 shows
     "Saved."
 
@@ -762,10 +792,13 @@ changes status.
   FAILED ── PUT permissions 502 / Re-sync 502 ──────────────▶ FAILED (notice shown again)
 ```
 
-After a save or a Re-sync, the refetch rule shows the status the service returns. On a
-`ROLE_PERMISSIONS_SAVE` 502 with completed steps, the rows were saved, so the form resets to the
-refetched rows. On a 502 with no completed steps, the edited rows stay in the form for another
-try.
+After a save or a Re-sync, the refetch rule shows the status the service returns. A
+`ROLE_PERMISSIONS_SAVE` 502 always means the rows were saved (admin-service §5.7), so the form
+resets to the refetched rows. The mechanism: the rules editor reads its rows once, when it
+mounts, and is mounted with a `resetKey`. After a 2xx save or a `ROLE_PERMISSIONS_SAVE` 502, the
+tab refetches the permissions and then increments `resetKey`, which remounts the editor with the
+saved rows. Nothing else resets it. Re-sync is allowed while the editor has unsaved edits; it
+does not change `resetKey`, so the edits stay.
 
 #### Menus catalog (F-15)
 
@@ -870,6 +903,11 @@ two ways:
 *   **Real stack**: a Playwright test under `npm run e2e`, against M0 Keycloak and the service
     on 8085.
 
+Each MSW cell is proved at the build step that creates its test file
+([Order of work](#order-of-work)): F1 rows at step 2, except "403 shown inline", which is proved
+at step 3 (`RolesListPage`) and step 5 (`UsersListPage`); F2 at step 3; F3 at step 4; F4 at
+step 5; F5 at step 6. Every Real stack cell is proved at step 7.
+
 | Milestone | Exit check (PRD §10) | MSW test | Real stack |
 |---|---|---|---|
 | F1 | Login redirect works | `keycloak.test.ts`: `init` called with `login-required` and `S256`. `bootstrap.test.tsx`: nothing renders while sign-in is pending | The Playwright setup project signs in through the Keycloak login page |
@@ -880,7 +918,7 @@ two ways:
 | F2 | Menus tree saves full set | `RoleMenusTab.test.tsx`: Save disabled until changed; recorded request body is the complete set | CUJ 3 |
 | F2 | Warning on DETAIL-only | `RoleMenusTab.test.tsx`: client-side warning while editing; server warning shown after save | CUJ 3 grants one `DETAIL` menu without its parent and checks the server warning |
 | F3 | Save shows "synced" | `RolePermissionsTab.test.tsx`: 200 shows "Saved." and "Synced · {time}"; implicit rows shown read-only and absent from the request | CUJ 3 |
-| F3 | MSW 502 shows retry state | `RolePermissionsTab.test.tsx`: 502 with completed steps shows `SyncFailedNotice` and Re-sync, rows refetched, "Sync failed" badge; 502 with no steps keeps the edits | CUJ 6, using the stand-in switch |
+| F3 | MSW 502 shows retry state | `RolePermissionsTab.test.tsx`: 502 `ROLE_PERMISSIONS_SAVE` shows `SyncFailedNotice` and Re-sync, rows refetched, "Sync failed" badge | CUJ 6, using the stand-in switch |
 | F3 | Re-sync works | `RolePermissionsTab.test.tsx`: Re-sync 200 shows "Synced"; Re-sync 502 shows the `ROLE_SYNC` text | CUJ 6 |
 | F4 | Paginated, filtered list | `UsersListPage.test.tsx`: each filter and page change sends the matching query parameters; a filter change sets `page` to 1; page count from `totalPages`; invalid paging corrected | CUJ 2 finds the new user with the search box |
 | F4 | Create and edit flows | `UserCreatePage.test.tsx`, `UserEditPage.test.tsx`: validation, one `POST`, `ACTION_EMAIL_NOT_SENT`, `ROLE_NOT_SYNCED`, `ROLE_NOT_ASSIGNABLE`, the four separate edit actions, `LAST_SYSTEM_ADMIN`, `EMAIL_IN_USE` on update | CUJ 2, CUJ 4, CUJ 5, CUJ 6 (`ROLE_NOT_SYNCED`) |
@@ -947,7 +985,7 @@ Each alternative names the decision that rejected it.
 *   **Pros**: Every component test also exercises `initAuth()`, the refresh interval and the 401
     path.
 *   **Cons**: Every component test depends on the `keycloak-js` API, and every render waits for
-    an asynchronous sign-in. A library upgrade that changes behaviour the fake does not copy
+    an asynchronous sign-in. A library upgrade that changes behavior the fake does not copy
     leaves the tests passing against a fake that no longer matches.
 *   **Reason for Rejection**: Rejected by author: only one test file, `keycloak.test.ts`, should
     depend on `keycloak-js` details, and that file covers what this alternative would add.
@@ -1091,40 +1129,90 @@ Each alternative names the decision that rejected it.
 
 ## Detailed Implementation Plan
 
-Every file below is created under `cce-admin-ui/` at the repository root, unless its path says
-otherwise. No existing file is modified. Versions are exact
+Every file below is created under `cce-admin-ui/` at the repository root. No existing file is
+modified, inside or outside `cce-admin-ui/`. Versions are exact
 ([D-05](author-decisions.md#d-05-pinned-versions-checked-on-2026-11-10)); `package-lock.json` is
 committed.
 
 ### Order of work
 
 Every step ends with `cp .env.example .env` (once, if `.env` does not exist) and
-`npm run lint && npm run build && npm run test:ci`, plus its rows of the
-[exit-check table](#how-each-milestone-exit-check-is-shown). The coverage thresholds apply at
-every step, so each step's tests cover the files that step creates. `src/routes.tsx` gains each
-page's route in the step that creates the page, and `schemas.test.ts` gains the cases for each
-schema in the step that creates it.
+`npm run lint && npm run build && npm run test:ci`, plus the rows of the
+[exit-check table](#how-each-milestone-exit-check-is-shown) that the step proves. `test:ci`
+enforces the total coverage thresholds at every step, so each step adds tests for the files it
+creates, and creates a file only in the step whose tests use it. Three files grow across steps:
+
+*   `src/routes.tsx` gains each page's route in the step that creates the page. Until step 5,
+    the `/` redirect to `/users` lands on the not-found page.
+*   An `api/` module and its hook file gain each function in the step whose tests call it.
+*   `src/schemas/rules.ts` and `schemas.test.ts` gain the rules and cases for each schema in the
+    step that creates the schema.
 
 1.  **Scaffold and tooling:** items 1 to 18, a placeholder `src/main.tsx` that renders nothing,
     and items 22 and 23. Check: lint and build pass; `test:ci` runs with no tests (Vitest
     `passWithNoTests`).
-2.  **F1, shell and foundations:** items 19 to 30, 36 to 38, 44, 46 to 49, 52, 57 to 65, 81,
-    82, 91 to 96; tests `config`, `bootstrap`, `keycloak`, `client`, `describeError`,
-    `formErrors`, `lintRules`, `SyncFailedNotice`, `AppLayout`. Routes: layout, `/` redirect,
+2.  **F1, shell and foundations:** items 19 to 21, 24 to 30, 36 to 38, 47, 48, 57 to 60,
+    `LoadingSpinner` from item 65, items 81, 82 and 91 to 96. Tests: `config`, `configSource`,
+    `bootstrap`, `keycloak`, `client`, `queryClient`, `describeError`, `formErrors`,
+    `lintRules`, `InlineError`, `SyncFailedNotice`, `AppLayout`. Routes: layout, `/` redirect,
     `*`.
-3.  **F2, roles and menus tab:** items 32, 33, 35, 40, 41, 43 (`useMenuTree` only), 45, 50, 54,
-    71 to 74, 86 to 88; tests `useRoles`, `menuTree`, `schemas` (role cases), `RolesListPage`,
+3.  **F2, roles and menus tab:** item 32 without `syncRole`, items 33, 35 (`getMenuTree` only),
+    40 without `useSyncRole`, 41, 43 (`useMenuTree` only), 45, 46, 49, 50, 52 (role rules and
+    the re-exported constants), 54, 61, 63, 64, the other six files of item 65, 71 to 74 and 86
+    to 88. Tests: `useRoles`, `menuTree`, `schemas` (role cases), `RolesListPage`,
     `RoleDetailPage`, `RoleMenusTab`. Routes: `/roles`, `/roles/:id`. Until step 4,
-    `RoleDetailPage` renders "Permissions are added in the next step." for
-    `?tab=permissions`.
-4.  **F3, permissions tab:** items 34, 42, 51, 55, 75, 76, 89; tests `permissions`, `schemas`
-    (permission cases), `RolePermissionsTab`. `RoleDetailPage` now renders `RolePermissionsTab`.
-5.  **F4, users:** items 31, 39, 53, 66 to 70, 83 to 85; tests `schemas` (user cases),
-    `UsersListPage`, `UserCreatePage`, `UserEditPage`. Routes: `/users`, `/users/new`,
-    `/users/:id`.
-6.  **F5, menus catalog:** the rest of item 43, items 56, 77 to 80, 90; tests `schemas` (menu
-    cases), `MenusPage`. Route: `/menus`.
-7.  **Browser tests:** items 97 to 105, once the admin-service stack runs. Check: `npm run e2e`.
+    `RoleDetailPage` renders the temporary text "Permissions are not available yet." for
+    `?tab=permissions`; step 4 removes it.
+4.  **F3, permissions tab:** `syncRole` in item 32, `useSyncRole` in item 40, items 34, 42, 51,
+    52 (permission rules), 55, 75, 76 and 89. Tests: `permissions`, `schemas` (permission
+    cases), `RolePermissionsTab`. `RoleDetailPage` now renders `RolePermissionsTab`.
+5.  **F4, users:** items 31, 39, 44, 52 (user rules), 53, 62, 66 to 70 and 83 to 85. Tests:
+    `schemas` (user cases), `UsersListPage`, `UserCreatePage`, `UserEditPage`. Routes: `/users`,
+    `/users/new`, `/users/:id`.
+6.  **F5, menus catalog:** `createMenu` and `updateMenu` in item 35, the rest of item 43, items
+    52 (menu rules), 56, 77 to 80 and 90. Tests: `schemas` (menu cases), `MenusPage`. Route:
+    `/menus`.
+7.  **Browser tests:** items 97 to 105. Start the admin-service stack and the service as in
+    admin-service [§9.3](cce-admin-service.md#93-values-commands-and-reset) first. Check:
+    `npm run e2e`.
+
+### Coding conventions
+
+*   **Promises.** The lint preset rejects promises that are neither awaited nor handled. A
+    promise that is deliberately not awaited is called with `void`, for example
+    `void bootstrap(root)`, `void queryClient.invalidateQueries()` and `void navigate(path)`. A
+    promise-returning function passed to a `() => void` prop is wrapped, for example
+    `onSignOut={() => void logout()}`. React Hook Form's `onSubmit={handleSubmit(fn)}` is allowed
+    by the `no-misused-promises` setting in item 9.
+*   **Mutation hooks** take no argument and receive their variables in `mutate` or
+    `mutateAsync`: the request body for a create (`useCreateUser`, `useCreateRole`,
+    `useCreateMenu`); the id for an action without a body (`useResetUserPassword`,
+    `useDeleteRole`, `useSyncRole`, `useToggleMenuActive`); `{ id, body }` for everything else.
+*   **Forms and refetching.** No form copies refetched data into its fields. A form reads its
+    initial values once, when it mounts. The rules for when a form resets are in
+    [`SyncFailedNotice`](#syncfailednotice) (user forms) and
+    [Permissions tab](#permissions-tab-f-14) (the rules editor).
+*   **Texts.** Every user-facing string that a test asserts is given in this document; the ones
+    not given elsewhere are in [Fixed UI texts](#fixed-ui-texts).
+
+### Fixed UI texts
+
+| Where | Title | Text | Buttons |
+|---|---|---|---|
+| Start-up, configuration missing | "The console cannot start" | one line per missing variable: "Configuration error: {name} is not set." | none |
+| Start-up, sign-in failed | "Sign-in failed" | "Sign-in did not complete with the sign-in service at {keycloakUrl}." | none |
+| Confirm Activate (user) | "Activate {username}?" | "Their Keycloak account is enabled again, with the roles they hold." | "Activate", "Cancel" |
+| Confirm Deactivate (user) | "Deactivate {username}?" | "Their Keycloak account is disabled and their sessions end. Their roles are kept." | "Deactivate", "Cancel" |
+| Confirm Lock (user) | "Lock {username}?" | "Their Keycloak account is disabled and their sessions end until you activate it again. Their roles are kept." | "Lock", "Cancel" |
+| Confirm set-password email | "Send a set-password email to {username}?" | "Keycloak sends an email to {email} with a link to set a new password." | "Send", "Cancel" |
+| Confirm role create | "Create {name}?" | "The name cannot be changed later. It is also the Keycloak realm role name and the gateway permission name." | "Create", "Cancel" |
+| Confirm role delete | "Delete {name}?" | "The role, its menu grants and its permission rules are deleted. The name cannot be reused until a later gateway sync removes its realm role." | "Delete", "Cancel" |
+| Confirm menu deactivate | "Deactivate {label}?" | "Roles keep the grant, but no console shows this menu while it is inactive." | "Deactivate", "Cancel" |
+| Confirm menu activate | "Activate {label}?" | "Roles that were granted this menu show it again." | "Activate", "Cancel" |
+| Unsaved-changes guard | "Unsaved changes" | "You have unsaved changes. Leave without saving?" | "Leave", "Stay" |
+| Row and section success | none | "{username} is now Active." (or "Inactive.", "Locked."); "Set-password email sent to {email}."; "Profile saved."; "Roles saved."; role display form "Saved."; Menus tab "Menus saved."; Menus catalog "Menu saved." | none |
+| Not found (user, role) | none | "This user does not exist." / "This role does not exist." | link "Back to users" / "Back to roles" |
+| Not-found page | "Page not found" | none | link "Go to users" |
 
 ### Target Files to Create
 
@@ -1215,8 +1303,10 @@ schema in the step that creates it.
 ##### 5. `tsconfig.node.json`
 
 *   **Type / Scope**: compiler settings for config files and browser tests.
-*   **Proposed Changes**: same strictness, `types: ["node"]`, `skipLibCheck: true`,
-    `noEmit: true`, `allowJs: true`,
+*   **Proposed Changes**: target ES2022, lib `["ES2023"]`, module ESNext, moduleResolution
+    bundler, `strict: true`, `noUncheckedIndexedAccess: true`, `noUnusedLocals: true`,
+    `noUnusedParameters: true`, `verbatimModuleSyntax: true`, `skipLibCheck: true`,
+    `noEmit: true`, `allowJs: true`, `types: ["node"]`,
     `tsBuildInfoFile: "./node_modules/.tmp/tsconfig.node.tsbuildinfo"`; include
     `vite.config.ts`, `vitest.config.ts`, `playwright.config.ts`, `eslint.config.js` and
     `e2e/**/*.ts`.
@@ -1234,6 +1324,8 @@ schema in the step that creates it.
 ##### 7. `vitest.config.ts`
 
 *   **Proposed Changes**:
+    *   First statement: `process.env.TZ = 'UTC'`, so `formatInstant` gives the same text on
+        every machine and in the Docker `verify` stage.
     *   Plugin `react()`. `test.environment` `jsdom`, `globals: true`,
         `setupFiles: ['./src/test/setup.ts']`, `include: ['src/**/*.test.{ts,tsx}']`,
         `passWithNoTests: true`.
@@ -1244,7 +1336,7 @@ schema in the step that creates it.
     *   Coverage: provider `v8`, include `src/**`, exclude
         `[...coverageConfigDefaults.exclude, 'src/test/**', 'src/main.tsx',
         '**/__lint_fixtures__/**']`; thresholds lines 80, statements 80, functions 80,
-        branches 70.
+        branches 70, over all included files together.
 
 ##### 8. `playwright.config.ts`
 
@@ -1257,7 +1349,8 @@ schema in the step that creates it.
 
 ##### 9. `eslint.config.js`
 
-*   **Type / Scope**: lint rules (the four import rules of the Technical Plan).
+*   **Type / Scope**: lint rules, including the four import rules of
+    [Layers and the rules between them](#layers-and-the-rules-between-them).
 *   **Proposed Changes**:
     *   **Global ignores:** `dist`, `coverage`, `playwright-report`, `test-results`,
         `e2e/.auth`, `**/__lint_fixtures__/**`.
@@ -1266,20 +1359,28 @@ schema in the step that creates it.
         `tsconfigRootDir: import.meta.dirname`; `reactHooks.configs['recommended-latest']`;
         browser globals for `src/**`, Node globals for config files and `e2e/**`;
         `eslint-config-prettier` last.
-    *   **Import rules.** One `@typescript-eslint/no-restricted-imports` block per file group.
-        The groups do not overlap (each uses `files` and `ignores`), so no block overrides
-        another, and each carries the full set of its restrictions. Test files below means
-        `**/*.test.{ts,tsx}` and `src/test/**`.
-        *   `src/components/**/*.{ts,tsx}` (not tests): patterns
+    *   **Promise rules** (UI-AD-18's preset kept; [Coding conventions](#coding-conventions)):
+        for `**/*.{ts,tsx}`,
+        `'@typescript-eslint/no-misused-promises': ['error', { checksVoidReturn: { attributes:
+        false } }]`, so `onSubmit={handleSubmit(fn)}` passes;
+        `'@typescript-eslint/no-floating-promises'` stays on, and unawaited promises use `void`.
+        For test files only, `'@typescript-eslint/unbound-method': 'off'`, because assertions
+        such as `expect(instance.updateToken)` reference methods unbound.
+    *   **Import rules.** In this list, "test files" means `**/*.test.{ts,tsx}` and
+        `src/test/**`. The four import rules are configured through five file groups, one
+        `@typescript-eslint/no-restricted-imports` block each. The groups do not overlap (each
+        uses `files` and `ignores`), so no block overrides another, and each carries the full
+        set of its restrictions.
+        *   `src/components/**/*.{ts,tsx}` (not test files): patterns
             `{ group: ['**/api/contract'], allowTypeImports: true }`,
             `{ group: ['**/api/*', '!**/api/contract'] }`, `{ group: ['**/hooks/*'] }`,
             `{ group: ['msw/*'] }`; paths `@tanstack/react-query`, `keycloak-js`, `msw`,
             `@playwright/test`.
-        *   `src/pages/**/*.{ts,tsx}` (not tests): the same without the `hooks` and
+        *   `src/pages/**/*.{ts,tsx}` (not test files): the same without the `hooks` and
             `@tanstack/react-query` entries.
-        *   `src/auth/**/*.{ts,tsx}` (not tests): paths `msw`, `@playwright/test`; pattern
+        *   `src/auth/**/*.{ts,tsx}` (not test files): paths `msw`, `@playwright/test`; pattern
             `msw/*`.
-        *   every other `src/**/*.{ts,tsx}` (not tests): paths `keycloak-js`, `msw`,
+        *   every other `src/**/*.{ts,tsx}` (not test files): paths `keycloak-js`, `msw`,
             `@playwright/test`; pattern `msw/*`.
         *   test files, `e2e/**` and `playwright.config.ts`: no import restrictions.
 
@@ -1341,8 +1442,7 @@ schema in the step that creates it.
     [Build and deployment](#build-and-deployment): `encode zstd gzip`; `handle /admin/v1/*`
     with `reverse_proxy {$GATEWAY_UPSTREAM}`; a default `handle` with `root * /srv`, the
     `/assets/*` `Cache-Control` header, `try_files {path} /index.html` and `file_server`; and a
-    `header` block with the four security headers, the CSP using `{$KEYCLOAK_ORIGIN}`. The
-    layout starts as a copy of the `cce-insights-ui` Caddyfile.
+    `header` block with the four security headers, the CSP using `{$KEYCLOAK_ORIGIN}`.
 
 ##### 18. `README.md`
 
@@ -1355,29 +1455,33 @@ schema in the step that creates it.
         §9.3, then `npm run dev`, open `http://localhost:3002`.
     *   Browser tests: one-time `npx playwright install chromium`; the stack and service
         running; `export CCE_TEST_ADMIN_USERNAME=... CCE_TEST_ADMIN_PASSWORD=...` with the
-        values from the admin-service `.env`; `npm run e2e`; reset with the admin-service's
-        `docker compose --profile app down -v`.
+        values from the admin-service `.env`; `npm run e2e`. Each run leaves about seven
+        `E2E_*` roles behind; reset the local stack with the admin-service's
+        `docker compose --profile app down -v` when the global setup asks for it (item 98).
     *   Docker: `docker build --build-arg VITE_KEYCLOAK_REALM=... .`, `docker build --target
-        verify ...`, `docker run -e GATEWAY_UPSTREAM=... -p 3002:3002`, and the origin rule
-        (UI-AD-16).
+        verify ...`, `docker run -e GATEWAY_UPSTREAM=... -p 3002:3002`. When the image was built
+        with a `VITE_KEYCLOAK_URL` on another origin, also pass
+        `-e KEYCLOAK_ORIGIN=<that origin>`, or the Content-Security-Policy blocks sign-in. The
+        origin rule (UI-AD-16).
     *   The four import rules.
 
 #### Application entry
 
 ##### 19. `src/main.tsx`
 
-*   **Proposed Changes**: imports `./index.css` and calls
-    `bootstrap(document.getElementById('root')!)`. In step 1 it is a placeholder that renders
-    nothing.
+*   **Proposed Changes**: imports `./index.css` and runs
+    `void bootstrap(document.getElementById('root')!)`. In step 1 it is a placeholder that
+    renders nothing.
 
 ##### 20. `src/bootstrap.tsx`
 
-*   **Proposed Changes**: `bootstrap(root: HTMLElement): Promise<void>`. Calls `readConfig()`;
-    on failure renders `StartupErrorScreen` with "Configuration error: VITE_KEYCLOAK_REALM is not
-    set." (one line per missing variable) and returns. Otherwise awaits `initAuth(config)`; on
-    rejection renders `StartupErrorScreen` with "Sign-in did not complete with the sign-in
-    service at {keycloakUrl}."; on success renders `<StrictMode>`, `QueryClientProvider` with
-    `createQueryClient()`, and `RouterProvider` with `createBrowserRouter(routes)`.
+*   **Proposed Changes**: `bootstrap(root: HTMLElement): Promise<void>`, as in
+    [Start-up](#start-up-configuration-then-sign-in-then-render). Calls `readConfig()`; on
+    failure renders `StartupErrorScreen` with the configuration texts of
+    [Fixed UI texts](#fixed-ui-texts) and returns. Otherwise awaits `initAuth(config)`; on
+    rejection renders `StartupErrorScreen` with the sign-in texts; on success renders
+    `<StrictMode>`, `QueryClientProvider` with `createQueryClient()`, and `RouterProvider` with
+    `createBrowserRouter(routes)`.
 
 ##### 21. `src/routes.tsx`
 
@@ -1397,10 +1501,12 @@ schema in the step that creates it.
 
 ##### 24. `src/config.ts`
 
-*   **Proposed Changes**: exports type `AppConfig { keycloakUrl; keycloakRealm;
-    keycloakClientId; apiBaseUrl }`, `readConfig(): { ok: true; config: AppConfig } | { ok:
-    false; missing: string[] }` with the defaults and trimming from the Technical Plan, and
-    `getApiBaseUrl(): string` for `client.ts`. It reads only the four §8.3 variables.
+*   **Proposed Changes**: exports type `AppConfig { keycloakUrl: string; keycloakRealm: string;
+    keycloakClientId: string; apiBaseUrl: string }`, `readConfig(): { ok: true; config:
+    AppConfig } | { ok: false; missing: string[] }` with the defaults and trimming of
+    [Start-up](#start-up-configuration-then-sign-in-then-render), and
+    `getApiBaseUrl(): string` for `client.ts`. It is the only file that reads `import.meta.env`,
+    and it reads only the four §8.3 variables (checked by `configSource.test.ts`).
 
 #### Auth
 
@@ -1416,12 +1522,12 @@ schema in the step that creates it.
     *   `refreshToken(): Promise<boolean>`: `updateToken(-1)`; `true` on success; on failure
         calls `login()` and returns `false`.
     *   `login(): Promise<void>`.
-    *   `logout(): Promise<void>`: redirects to `window.location.origin + '/'`.
+    *   `logout(): Promise<void>`, which redirects to `window.location.origin + '/'`.
 
 ##### 26. `src/auth/useAuth.ts`
 
-*   **Proposed Changes**: `useAuth(): { logout }`, so `AppLayout` can pass a sign-out callback to
-    the header without the header importing `auth/` (UI-DEV-1).
+*   **Proposed Changes**: `useAuth(): { logout: () => Promise<void> }`, so `AppLayout` can pass a
+    sign-out callback to the header without the header importing `auth/` (UI-DEV-1).
 
 #### API layer
 
@@ -1430,22 +1536,29 @@ schema in the step that creates it.
 *   **Type / Scope**: the single contract module (D-01, UI-AD-03, Goal 6).
 *   **Proposed Changes**: types only, plus three constant arrays. Mirrors admin-service §4.1 to
     §4.5 with the same property names. Response fields that can be empty are `T | null`, never
-    optional (see API client).
+    optional ([API client](#api-client-and-the-contract-module)).
     *   **Envelopes:**
-        *   `SuccessEnvelope<T> { data: T; pagination?: Pagination; warnings?: Warning[] }`.
-        *   `Pagination { page; pageSize; totalItems; totalPages }`.
+        *   `SuccessEnvelope<T> { data: T; pagination?: PageInfo; warnings?: Warning[] }`.
+        *   `PageInfo { page; pageSize; totalItems; totalPages }`: the contract's pagination
+            block, named `PageInfo` in the console so it does not clash with the `Pager`
+            component (item 64).
         *   `WarningCode = 'DETAIL_WITHOUT_PARENT' | 'ACTION_EMAIL_NOT_SENT' |
             'ROLE_SYNC_FAILED'`.
-        *   `Warning { code: WarningCode; message: string; menuId: string | null; parentMenuId:
-            string | null }`.
+        *   `Warning`, a union on `code` that matches the table in admin-service §4.1, where
+            each warning carries only the reference fields its code defines:
+            `{ code: 'DETAIL_WITHOUT_PARENT'; message: string; menuId: string; parentMenuId:
+            string } | { code: 'ACTION_EMAIL_NOT_SENT' | 'ROLE_SYNC_FAILED'; message: string }`.
+            The console reads `menuId` and `parentMenuId` only after checking the code.
         *   `ErrorEnvelope { error: { code: string; message: string; details?: FieldError[];
             partialState?: PartialState } }`. `code` is `string`, not `ErrorCode`, because an
             unknown code must still parse and become `unexpected`.
         *   `FieldError { field; message }`.
-        *   `PartialStateOperation`: the operations of admin-service §4.2.
-        *   `PartialState { operation; entityId: string | null; failedStep: string;
-            completedSteps: string[]; keycloakUserId: string | null; auditLogId: string | null
-            }`.
+        *   `PartialStateOperation = 'USER_CREATE' | 'USER_PROFILE_UPDATE' |
+            'USER_STATUS_CHANGE' | 'USER_ROLES_UPDATE' | 'USER_PASSWORD_RESET' |
+            'ROLE_PERMISSIONS_SAVE' | 'ROLE_SYNC'` (the seven of admin-service §4.2).
+        *   `PartialState { operation: PartialStateOperation; entityId: string; failedStep:
+            string; completedSteps: string[]; keycloakUserId: string | null; auditLogId: string |
+            null }`.
         *   `ErrorCode`: every code in admin-service §4.2.
     *   **Users:**
         *   `UserStatus = 'ACTIVE' | 'INACTIVE' | 'LOCKED'`.
@@ -1469,10 +1582,16 @@ schema in the step that creates it.
         *   `PermissionRow { id: number; httpMethod; uriPattern; description: string | null;
             resourceCategory: string | null; implicit: boolean }`.
         *   `PermissionRowInput { httpMethod; uriPattern; description?; resourceCategory? }`.
-        *   `RolePermissions { roleId; syncStatus; lastSyncAt: string | null; permissions:
-            PermissionRow[] }`.
+        *   `RolePermissions { roleId; syncStatus: SyncStatus; lastSyncAt: string | null;
+            permissions: PermissionRow[] }`.
         *   `ReplaceRolePermissionsRequest { permissions: PermissionRowInput[] }`.
-        *   `RoleSyncResult { roleId; syncStatus; lastSyncAt: string | null }`.
+        *   `RoleSyncResult { roleId; syncStatus: SyncStatus; lastSyncAt: string }`
+            (`lastSyncAt` is never null here: the sync has just run).
+
+        `RoleSyncResult`, `RolePermissions`, `RoleMenus` and `ResetPasswordResult` keep the names
+        of admin-service §4.4 ("Named result records"). Where §4.4 types `syncStatus` as
+        `string`, `contract.ts` narrows it to `SyncStatus`, the three values the Role resource
+        defines.
     *   **Menus:**
         *   `MenuType = 'NAV' | 'DETAIL'`.
         *   `Menu` (fields of §4.4; `icon: string | null`, `parentId: string | null`,
@@ -1490,21 +1609,30 @@ schema in the step that creates it.
 
 ##### 28. `src/api/ApiError.ts`
 
-*   **Proposed Changes**: `class ApiError extends Error` with `status: number`, `code: string`,
-    `details?: FieldError[]`, `partialState?: PartialState`, `hasEnvelope: boolean`; exported
-    constants `CLIENT_NETWORK_ERROR` and `CLIENT_UNEXPECTED_RESPONSE`.
+*   **Proposed Changes**: `class ApiError extends Error` with constructor
+    `constructor(init: { status: number; code: string; message: string; details?: FieldError[];
+    partialState?: PartialState; hasEnvelope: boolean })`, which sets the same-named read-only
+    fields and `name = 'ApiError'`; exported constants `CLIENT_NETWORK_ERROR` and
+    `CLIENT_UNEXPECTED_RESPONSE`.
 
 ##### 29. `src/api/client.ts`
 
 *   **Type / Scope**: the typed `fetch` wrapper (F-02).
-*   **Proposed Changes**: `apiRequest<T>(method: string, path: string, options?: { query?:
-    Record<string, string | number | null | undefined>; body?: unknown; signal?: AbortSignal
-    }): Promise<SuccessEnvelope<T> | undefined>`, with the behaviour in
-    [API client and the contract module](#api-client-and-the-contract-module): URL building,
-    headers, missing token, the 401 paths, 204 to `undefined`, JSON parse, error envelope to
-    `ApiError`, the two `CLIENT_` codes. The sibling file `src/api/results.ts`, part of this
-    item, exports the result types the resource modules return:
-    `Page<T> = { items: T[]; pagination: Pagination }` and
+*   **Proposed Changes**: two functions, with the behavior in
+    [API client and the contract module](#api-client-and-the-contract-module) (URL building,
+    headers, missing token, the 401 paths, error envelope to `ApiError`, the two `CLIENT_`
+    codes):
+    *   `apiRequest<T>(method: string, path: string, options?: { query?: Record<string, string
+        | number | null | undefined>; body?: unknown; signal?: AbortSignal }):
+        Promise<SuccessEnvelope<T>>`. A 2xx response whose body is not a JSON object with a
+        `data` property (an empty body, HTML from a misrouted proxy, a 204) throws
+        `ApiError` with code `CLIENT_UNEXPECTED_RESPONSE`, that status and
+        `hasEnvelope: false`.
+    *   `apiDelete(path: string): Promise<void>` for the one endpoint that answers 204
+        (`DELETE /roles/:id`); any 2xx is success, and its body is ignored.
+
+    The sibling file `src/api/results.ts`, part of this item, exports the result types the
+    resource modules return: `Page<T> = { items: T[]; pagination: PageInfo }` and
     `WithWarnings<T> = { data: T; warnings: Warning[] }` (`warnings` is `[]` when the envelope
     has none).
 
@@ -1527,12 +1655,13 @@ schema in the step that creates it.
 
 *   **Proposed Changes**:
     *   `listRoles(params: { page: number; pageSize: number }): Promise<Page<Role>>`
-    *   `listAllRoles(): Promise<{ items: Role[]; truncated: boolean }>` (UI-AD-20)
+    *   `listAllRoles(): Promise<{ items: Role[]; truncated: boolean }>`: every role, assignable
+        or not, up to five pages of 100 (UI-AD-20)
     *   `getRole(id: string): Promise<Role>`
     *   `createRole(body: CreateRoleRequest): Promise<WithWarnings<Role>>`
     *   `updateRole(id: string, body: UpdateRoleRequest): Promise<Role>`
-    *   `deleteRole(id: string): Promise<void>`
-    *   `syncRole(id: string): Promise<RoleSyncResult>`
+    *   `deleteRole(id: string): Promise<void>` (through `apiDelete`)
+    *   `syncRole(id: string): Promise<RoleSyncResult>` (step 4)
 
 ##### 33. `src/api/roleMenus.ts`
 
@@ -1548,25 +1677,29 @@ schema in the step that creates it.
 
 ##### 35. `src/api/menus.ts`
 
-*   **Proposed Changes**: `getMenuTree(): Promise<Menu[]>`, `createMenu(body:
-    CreateMenuRequest): Promise<Menu>`, `updateMenu(id: string, body: UpdateMenuRequest):
-    Promise<Menu>`. No delete (UI-AD-07).
+*   **Proposed Changes**: `getMenuTree(): Promise<Menu[]>` (step 3); `createMenu(body:
+    CreateMenuRequest): Promise<Menu>` and `updateMenu(id: string, body: UpdateMenuRequest):
+    Promise<Menu>` (step 6). No delete (UI-AD-07).
 
 #### Hooks
+
+Mutation hooks follow the variables convention in [Coding conventions](#coding-conventions).
 
 ##### 36. `src/hooks/queryKeys.ts`
 
 *   **Proposed Changes**: one function per key in
-    [Server state](#server-state-hooks-query-keys-and-refetching).
+    [Server state](#server-state-hooks-query-keys-and-refetching); all of them are created in
+    step 2 and checked by `queryClient.test.ts`.
 
 ##### 37. `src/hooks/queryClient.ts`
 
 *   **Proposed Changes**: `createQueryClient(options?: { retry?: boolean }): QueryClient`.
-    Queries: `staleTime` 30 000 ms, `refetchOnWindowFocus: false`, retry once only for status 0
+    Queries: `staleTime` 30000 ms, `refetchOnWindowFocus: false`, retry once only for status 0
     or 500 and above (off when `options.retry === false`). Mutations: `retry: 0`. A
-    `MutationCache` with `onSettled` applies the refetch rule: on success, or when the error's
-    `describeError` kind is `syncFailed`, `network` or `unexpected`, it calls
-    `queryClient.invalidateQueries()`.
+    `MutationCache` with `onSettled` applies the
+    [refetch rule](#server-state-hooks-query-keys-and-refetching): on success, or when the
+    error's `describeError` kind is `syncFailed`, `network` or `unexpected`, it runs
+    `void queryClient.invalidateQueries()`.
 
 ##### 38. `src/hooks/useMe.ts`
 
@@ -1574,63 +1707,88 @@ schema in the step that creates it.
 
 ##### 39. `src/hooks/useUsers.ts`
 
-*   **Proposed Changes**: `useUserList(query)` (with `placeholderData: keepPreviousData`),
-    `useUser(id)`, `useCreateUser`, `useUpdateUser`, `useChangeUserStatus`,
-    `useReplaceUserRoles`, `useResetUserPassword`.
+*   **Proposed Changes**: `useUserList(query: UserListQuery)` (with
+    `placeholderData: keepPreviousData`), `useUser(id: string)`, `useCreateUser()` (variables:
+    `CreateUserRequest`), `useUpdateUser()` (`{ id, body: UpdateUserRequest }`),
+    `useChangeUserStatus()` (`{ id, body: ChangeUserStatusRequest }`), `useReplaceUserRoles()`
+    (`{ id, body: ReplaceUserRolesRequest }`), `useResetUserPassword()` (`id`).
 
 ##### 40. `src/hooks/useRoles.ts`
 
-*   **Proposed Changes**: `useRoleList({ page, pageSize })`, `useAllRoles()`, `useRole(id)`,
-    `useCreateRole`, `useUpdateRole`, `useDeleteRole`, `useSyncRole`.
+*   **Proposed Changes**: `useRoleList({ page, pageSize })`, `useAllRoles()` (returns every role
+    and `truncated`; callers filter), `useRole(id: string)`, `useCreateRole()`
+    (`CreateRoleRequest`), `useUpdateRole()` (`{ id, body: UpdateRoleRequest }`),
+    `useDeleteRole()` (`id`), and in step 4 `useSyncRole()` (`id`).
 
 ##### 41. `src/hooks/useRoleMenus.ts`
 
-*   **Proposed Changes**: `useRoleMenus(id)`, `useReplaceRoleMenus(id)`.
+*   **Proposed Changes**: `useRoleMenus(id: string)`, `useReplaceRoleMenus()`
+    (`{ id, body: ReplaceRoleMenusRequest }`).
 
 ##### 42. `src/hooks/useRolePermissions.ts`
 
-*   **Proposed Changes**: `useRolePermissions(id)`, `useReplaceRolePermissions(id)`.
+*   **Proposed Changes**: `useRolePermissions(id: string)`, `useReplaceRolePermissions()`
+    (`{ id, body: ReplaceRolePermissionsRequest }`).
 
 ##### 43. `src/hooks/useMenus.ts`
 
-*   **Proposed Changes**: `useMenuTree()`; `useCreateMenu()`; `useUpdateMenu()`;
-    `useToggleMenuActive()`, whose mutation function calls `getMenuTree()` afresh, finds the
-    entry, builds an `UpdateMenuRequest` from its current values with `isActive` flipped, and
+*   **Proposed Changes**: `useMenuTree()` (step 3); in step 6, `useCreateMenu()`
+    (`CreateMenuRequest`), `useUpdateMenu()` (`{ id, body: UpdateMenuRequest }`) and
+    `useToggleMenuActive()` (`id`), whose mutation function calls `getMenuTree()` again, finds
+    the entry, builds an `UpdateMenuRequest` from its current values with `isActive` flipped, and
     calls `updateMenu` (UI-AD-12).
 
 ##### 44. `src/hooks/useDebouncedValue.ts`
 
-*   **Proposed Changes**: `useDebouncedValue<T>(value: T, delayMs: number): T`, used with 300.
+*   **Proposed Changes**: `useDebouncedValue<T>(value: T, delayMs: number): T`, used with
+    300 ms.
 
 ##### 45. `src/hooks/usePagingParams.ts`
 
-*   **Proposed Changes**: `usePagingParams()` reads `page` and `pageSize` from the URL search
-    parameters through `normalizePagingParams` (invalid values become 1 and 20) and returns them
-    with `setPage`, `setPageSize` and `resetPage` (used on every filter change), all keeping the
-    other search parameters. It also exports `clampPageToTotal(page, totalPages)` for the
-    past-the-last-page correction.
+*   **Proposed Changes**: three exports.
+    *   `normalizePagingParams(params: URLSearchParams): { page: number; pageSize: 20 | 50 |
+        100; changed: boolean }`: a `page` that is not a whole number of at least 1 becomes 1;
+        a `pageSize` other than 20, 50 or 100 becomes 20; `changed` says whether either was
+        replaced.
+    *   `clampPageToTotal(page: number, totalPages: number): number`: `totalPages` when
+        `page > totalPages >= 1`, otherwise `page`.
+    *   `usePagingParams(): { page; pageSize; setPage(n); setPageSize(n); resetPage() }`. When
+        `normalizePagingParams` reports `changed`, it rewrites the URL with
+        `setSearchParams(next, { replace: true })` before any request. Every setter keeps the
+        other search parameters; `setPageSize` and `resetPage` set `page` to 1.
 
 ##### 46. `src/hooks/useUnsavedChangesGuard.ts`
 
-*   **Proposed Changes**: `useUnsavedChangesGuard(isDirty: boolean)` wraps `useBlocker` and
-    returns `{ blocked, proceed, reset }` for a `ConfirmDialog` with "You have unsaved changes.
-    Leave without saving?".
+*   **Proposed Changes**: `useUnsavedChangesGuard(isDirty: boolean): { blocked: boolean;
+    proceed(): void; reset(): void }`, wrapping `useBlocker`; the page shows a `ConfirmDialog`
+    with the guard's texts from [Fixed UI texts](#fixed-ui-texts).
 
 #### Utilities and schemas
 
 ##### 47. `src/utils/describeError.ts`
 
-*   **Proposed Changes**: type `DescribedError { kind; code; status; message; details?;
-    partialState? }` and `describeError(error: unknown, options?: { detailFetch?: boolean }):
-    DescribedError`, following the kinds table. Non-`ApiError` values become `unexpected`.
+*   **Proposed Changes**: type `DescribedError { kind: 'forbidden' | 'syncFailed' |
+    'validation' | 'conflict' | 'notFound' | 'unauthenticated' | 'network' | 'unexpected'; code:
+    string; status: number; message: string; details?: FieldError[]; partialState?:
+    PartialState }` and `describeError(error: unknown, options?: { detailFetch?: boolean }):
+    DescribedError`, following the [kinds table](#error-presentation). Non-`ApiError` values
+    become `unexpected`.
 
 ##### 48. `src/utils/formErrors.ts`
 
-*   **Proposed Changes**: `toFormPath(field)` (`a[2].b` → `a.2.b`);
-    `applyServerErrors(setError, error, formFields, codeToField): string[]`, which sets field
-    errors from `details` and conflict codes and returns the messages for the top of the form;
-    `roleErrorMessages(error, sentRoleIds, roles): string[]` for `ROLE_NOT_SYNCED` and
-    `ROLE_NOT_ASSIGNABLE`.
+*   **Proposed Changes**:
+    *   `toFormPath(field: string): string` (`a[2].b` → `a.2.b`).
+    *   `applyServerErrors<T extends FieldValues>(setError: UseFormSetError<T>, error:
+        DescribedError, formFields: readonly string[], codeToField: Readonly<Partial<Record<
+        string, string>>>): string[]`. A detail's converted path counts as a form field when it
+        equals an entry of `formFields` or starts with an entry followed by `.` (so
+        `permissions.2.uriPattern` matches `permissions`). Matching details and mapped conflict
+        codes become field errors with the server message; the function returns the other
+        messages, for the top of the form.
+    *   `roleErrorMessages(error: DescribedError, sentRoleIds: readonly string[], roles:
+        readonly Role[]): string[]` for `ROLE_NOT_SYNCED` and `ROLE_NOT_ASSIGNABLE`, with the
+        texts of [Error presentation](#error-presentation). A `roleIds[i]` whose role is not in
+        `roles` is named "Role {id}".
 
 ##### 49. `src/utils/format.ts`
 
@@ -1640,8 +1798,9 @@ schema in the step that creates it.
 ##### 50. `src/utils/menuTree.ts`
 
 *   **Proposed Changes**: `flattenMenus(tree)`, `menuById(tree)`, `navMenus(tree)`,
-    `nextSortOrder(siblings)` (highest + 10, or 10, capped at 10000), and
-    `detailsWithoutParent(tree, selectedIds)` returning `{ menu, parent }` pairs.
+    `nextSortOrder(siblings)` (highest sibling `sortOrder` + 10; 10 when there are no siblings;
+    capped at 10000), and `detailsWithoutParent(tree, selectedIds)` returning `{ menu, parent }`
+    pairs.
 
 ##### 51. `src/utils/permissions.ts`
 
@@ -1652,8 +1811,9 @@ schema in the step that creates it.
 ##### 52. `src/schemas/rules.ts`
 
 *   **Proposed Changes**: the patterns, lengths and limits of admin-service §4.4 and §4.5 as
-    named constants, with a comment linking those sections; re-exports `USER_STATUSES` and
-    `PERMISSION_METHODS` from `contract.ts` for components.
+    named constants, with a comment linking those sections, added per step with the schema that
+    uses them; re-exports `USER_STATUSES` and `PERMISSION_METHODS` from `contract.ts` for
+    components.
 
 ##### 53. `src/schemas/userSchemas.ts`
 
@@ -1670,7 +1830,8 @@ schema in the step that creates it.
 
 ##### 56. `src/schemas/menuSchemas.ts`
 
-*   **Proposed Changes**: `menuFormSchema(navIds)`, with the parent rule.
+*   **Proposed Changes**: `menuFormSchema(navIds)`, with the menu parent rule of
+    [Forms and validation](#forms-and-validation).
 
 #### Components
 
@@ -1686,13 +1847,13 @@ button has a visible name, so tests can find them by role and label.
 
 *   **Proposed Changes**: props `{ username?: string; roles?: string[]; error?: DescribedError;
     onSignOut: () => void }`. Shows the username and roles joined by ", ", or the error's text
-    from the kinds table, and a "Sign out" button.
+    from the [kinds table](#error-presentation), and a "Sign out" button.
 
 ##### 59. `src/components/shared/InlineError.tsx`
 
 *   **Proposed Changes**: props `{ error: DescribedError; onRetry?: () => void; mutation?:
-    boolean }`; `role="alert"`; text from the kinds table; the Retry button only when
-    `onRetry` is set; the "result is unknown" text when `mutation` is true.
+    boolean }`; `role="alert"`; text from the [kinds table](#error-presentation); the "Retry"
+    button only when `onRetry` is set; the "result is unknown" text when `mutation` is true.
 
 ##### 60. `src/components/shared/SyncFailedNotice.tsx`
 
@@ -1702,9 +1863,11 @@ button has a visible name, so tests can find them by role and label.
 
 ##### 61. `src/components/shared/ConfirmDialog.tsx`
 
-*   **Proposed Changes**: a `div` with `role="dialog"`, `aria-modal="true"`, a title, body,
-    Confirm and Cancel buttons, and a pending state on Confirm. Not the native `<dialog>`
-    element, because jsdom does not implement `showModal`.
+*   **Proposed Changes**: props `{ title: string; body: string; confirmLabel: string;
+    cancelLabel?: string; pending?: boolean; onConfirm: () => void; onCancel: () => void }`
+    (`cancelLabel` defaults to "Cancel"). A `div` with `role="dialog"`, `aria-modal="true"` and
+    `aria-labelledby` on the title. Not the native `<dialog>` element, because jsdom does not
+    implement `showModal`. Texts: [Fixed UI texts](#fixed-ui-texts).
 
 ##### 62. `src/components/shared/StatusBadge.tsx`
 
@@ -1717,75 +1880,117 @@ button has a visible name, so tests can find them by role and label.
     "Synced · {time}" (green), "Never synced" (gray), "Sync failed · {time}" (red), with
     `{time}` from `formatInstant`.
 
-##### 64. `src/components/shared/Pagination.tsx`
+##### 64. `src/components/shared/Pager.tsx`
 
-*   **Proposed Changes**: props `{ page; totalPages; totalItems; pageSize; onPageChange;
-    onPageSizeChange }`: "Previous", "Next", "Page {page} of {totalPages} · {totalItems} items",
-    and a page-size select (20, 50, 100).
+*   **Proposed Changes**: props `{ page: number; totalPages: number; totalItems: number;
+    pageSize: 20 | 50 | 100; onPageChange(page: number): void; onPageSizeChange(size: 20 | 50 |
+    100): void }`: "Previous", "Next", "Page {page} of {totalPages} · {totalItems} items", and a
+    page-size select (20, 50, 100).
 
-##### 65. `src/components/shared/PageHeader.tsx`, `LoadingSpinner.tsx`, `EmptyState.tsx`, `NotFoundPanel.tsx`, `FormErrorSummary.tsx`, `WarningList.tsx`, `SuccessNotice.tsx`
+##### 65. Small shared components
 
-*   **Proposed Changes**: page title and actions; spinner with `role="status"` and "Loading…";
-    empty-list message; "Not found" panel with a back link; list of form-level messages; list
-    of warnings (`role="status"`); success message (`role="status"`).
+*   **Proposed Changes**: seven files.
+    *   `src/components/shared/LoadingSpinner.tsx` (step 2): props `{ label?: string }`;
+        `role="status"` with the label, default "Loading…".
+    *   `src/components/shared/PageHeader.tsx`: props `{ title: string; actions?: ReactNode }`;
+        an `h1` and the actions.
+    *   `src/components/shared/EmptyState.tsx`: props `{ message: string }`.
+    *   `src/components/shared/NotFoundPanel.tsx`: props `{ message: string; backTo: string;
+        backLabel: string }`; texts in [Fixed UI texts](#fixed-ui-texts).
+    *   `src/components/shared/FormErrorSummary.tsx`: props `{ messages: string[] }`;
+        `role="alert"`, rendered only when there is a message.
+    *   `src/components/shared/WarningList.tsx`: props `{ messages: string[] }`;
+        `role="status"`.
+    *   `src/components/shared/SuccessNotice.tsx`: props `{ message: string }`; `role="status"`.
 
 ##### 66. `src/components/users/UserFilters.tsx`
 
-*   **Proposed Changes**: props `{ values; roles; truncated; onChange }`: status select, role
-    select (assignable roles; "Showing the first 500 roles." when `truncated`), facility scope
-    and search inputs.
+*   **Proposed Changes**: a controlled component. Props `{ values: { status: UserStatus | '';
+    roleId: string; facilityScope: string; q: string }; roles: Role[]; truncated: boolean;
+    onChange(name: 'status' | 'roleId' | 'facilityScope' | 'q', value: string): void }`. Status
+    select, role select (only roles with `isAssignable: true`; "Showing the first 500 roles."
+    when `truncated`), facility scope and search inputs. It holds no state: `UsersListPage` keeps
+    the text drafts and debounces them (item 83).
 
 ##### 67. `src/components/users/UserTable.tsx`
 
-*   **Proposed Changes**: TanStack Table with `manualPagination`; props `{ users; pagination;
-    onAction(user, action); pendingUserId }`; the columns and row actions of the Users list.
+*   **Proposed Changes**: TanStack Table with `manualPagination`; props `{ users: User[];
+    pagination: PageInfo; onAction(user: User, action: 'ACTIVE' | 'INACTIVE' | 'LOCKED' |
+    'SEND_PASSWORD'): void; pendingUserId?: string }`; the columns and row actions of the
+    [Users list](#users-list-f-10).
 
 ##### 68. `src/components/users/RoleCheckboxList.tsx`
 
-*   **Proposed Changes**: props `{ roles; selectedIds; onChange; disabled; roleErrors; truncated
-    }`; one checkbox per role with display name and name and, when the role's `syncStatus` is
-    not `SYNCED`, its `SyncStatusBadge`.
+*   **Proposed Changes**: props `{ roles: Role[]; selectedIds: string[]; onChange(ids: string[]):
+    void; disabled?: boolean; roleErrors: string[]; truncated: boolean }`. It shows a checkbox
+    only for roles with `isAssignable: true`, each with display name and name and, when the
+    role's `syncStatus` is not `SYNCED`, its `SyncStatusBadge`. Selected ids that have no
+    checkbox are listed read-only under "Also held:" and are kept in every `onChange`.
 
 ##### 69. `src/components/users/UserCreateForm.tsx`
 
-*   **Proposed Changes**: React Hook Form with `createUserSchema`; props `{ roles; truncated;
-    onSubmit; pending; serverError }`; uses `applyServerErrors` and `roleErrorMessages`.
+*   **Proposed Changes**: React Hook Form with `createUserSchema`; props `{ roles: Role[];
+    truncated: boolean; onSubmit(body: CreateUserRequest): Promise<void>; pending: boolean;
+    serverError?: DescribedError }`; uses `applyServerErrors` and `roleErrorMessages`. It never
+    resets after a failure, so the same request can be submitted again
+    ([`SyncFailedNotice`](#syncfailednotice)).
 
-##### 70. `src/components/users/UserProfileForm.tsx`, `UserRolesForm.tsx`, `UserStatusActions.tsx`, `UserPasswordAction.tsx`
+##### 70. User edit sections
 
-*   **Proposed Changes**: the four User edit sections, each with its own submit callback,
-    pending flag and error props.
+*   **Proposed Changes**: four files. Each section has its own submit callback, pending flag and
+    error prop. The two forms read `defaultValues` once, when they mount; after a successful
+    save they call `reset()` with the user the callback resolves to; after a failure they keep
+    the values that were sent ([`SyncFailedNotice`](#syncfailednotice)).
+    *   `src/components/users/UserProfileForm.tsx`: props `{ user: User; onSubmit(body:
+        UpdateUserRequest): Promise<User>; pending: boolean; error?: DescribedError }`.
+    *   `src/components/users/UserRolesForm.tsx`: props `{ user: User; roles: Role[];
+        truncated: boolean; onSubmit(body: ReplaceUserRolesRequest): Promise<User>; pending:
+        boolean; error?: DescribedError }`; uses `RoleCheckboxList`, so held roles without a
+        checkbox stay in the request ([User edit](#user-edit-f-11)).
+    *   `src/components/users/UserStatusActions.tsx`: props `{ user: User; onChange(status:
+        UserStatus): void; pendingStatus?: UserStatus; error?: DescribedError }`; one button per
+        other status, each behind its `ConfirmDialog`.
+    *   `src/components/users/UserPasswordAction.tsx`: props `{ user: User; onSend(): void;
+        pending: boolean; sentTo?: string; error?: DescribedError }`; "Send set-password email"
+        behind its `ConfirmDialog`.
 
 ##### 71. `src/components/roles/RoleTable.tsx`
 
-*   **Proposed Changes**: TanStack Table with `manualPagination`; props `{ roles; pagination;
-    onDelete(role); pendingRoleId }`; the Roles list columns and Delete rules.
+*   **Proposed Changes**: TanStack Table with `manualPagination`; props `{ roles: Role[];
+    pagination: PageInfo; onDelete(role: Role): void; pendingRoleId?: string }`; the columns and
+    Delete rules of the [Roles list](#roles-list-f-12).
 
 ##### 72. `src/components/roles/RoleCreateForm.tsx`
 
 *   **Proposed Changes**: React Hook Form with `createRoleSchema`, the permanent-name warning,
-    and a `ConfirmDialog` before `onSubmit` is called.
+    and a `ConfirmDialog` before `onSubmit(body: CreateRoleRequest): Promise<void>` is called.
 
 ##### 73. `src/components/roles/RoleDisplayForm.tsx`
 
-*   **Proposed Changes**: display name and description; disabled with the system-role note when
-    `isSystem`.
+*   **Proposed Changes**: display name and description; props `{ role: Role; onSubmit(body:
+    UpdateRoleRequest): Promise<Role>; pending: boolean; error?: DescribedError }`; disabled
+    with the system-role note when `role.isSystem`; resets to the returned role after a save.
 
 ##### 74. `src/components/roles/MenuCheckboxTree.tsx`
 
-*   **Proposed Changes**: props `{ tree; selectedIds; onToggle; disabled }`; the two-level tree
-    with one checkbox per menu labelled by its label, showing path, type and "Inactive".
+*   **Proposed Changes**: props `{ tree: Menu[]; selectedIds: Set<string>; onToggle(id: string):
+    void; disabled?: boolean }`; the two-level tree with one checkbox per menu labeled by its
+    label, showing path, type and "Inactive".
 
 ##### 75. `src/components/roles/PermissionsEditor.tsx`
 
-*   **Proposed Changes**: the read-only implicit table and the editable field-array table;
-    props `{ implicitRows; explicitRows; disabled; onSubmit; pending; serverError }`; Save is
-    enabled when `sameRuleSet(current, fetched)` is false.
+*   **Proposed Changes**: the read-only implicit table and the editable field-array table.
+    Props `{ implicitRows: PermissionRow[]; initialRows: PermissionRow[]; disabled?: boolean;
+    onSubmit(body: ReplaceRolePermissionsRequest): Promise<void>; pending: boolean;
+    serverError?: DescribedError }`. It reads `initialRows` once, when it mounts; the tab
+    remounts it with a new `key` to reset it ([Permissions tab](#permissions-tab-f-14)). Save is
+    enabled when `sameRuleSet(current, initialRows)` is false.
 
 ##### 76. `src/components/roles/SyncStatusPanel.tsx`
 
-*   **Proposed Changes**: props `{ syncStatus; lastSyncAt; onResync; pending }`; badge, help text
-    (UI-AD-06), Re-sync button with pending state.
+*   **Proposed Changes**: props `{ syncStatus: SyncStatus; lastSyncAt: string | null;
+    onResync(): void; pending: boolean }`; badge, help text (UI-AD-06), Re-sync button with
+    pending state. Re-sync stays enabled while the rules editor has unsaved edits.
 
 ##### 77. `src/components/menus/iconMap.ts`
 
@@ -1799,82 +2004,94 @@ button has a visible name, so tests can find them by role and label.
 
 ##### 79. `src/components/menus/MenuTreeTable.tsx`
 
-*   **Proposed Changes**: props `{ tree; onAddDetail(nav); onEdit(menu); onToggle(menu);
-    pendingMenuId }`; the catalog table with indentation and row actions.
+*   **Proposed Changes**: props `{ tree: Menu[]; onAddDetail(nav: Menu): void; onEdit(menu:
+    Menu): void; onToggle(menu: Menu): void; pendingMenuId?: string }`; the catalog table with
+    indentation and row actions.
 
 ##### 80. `src/components/menus/MenuForm.tsx`
 
 *   **Proposed Changes**: React Hook Form with `menuFormSchema`; create and edit modes; key and
     type read-only in edit mode; icon select as in UI-AD-08; parent select listing every `NAV`
-    entry, inactive ones marked "(inactive)"; defaults from the Menus catalog section. Rendered
-    as an inline panel by `MenusPage`.
+    entry, inactive ones marked "(inactive)"; defaults from the
+    [Menus catalog](#menus-catalog-f-15). Rendered as an inline panel by `MenusPage`.
 
 #### Pages
 
 ##### 81. `src/pages/AppLayout.tsx`
 
-*   **Proposed Changes**: uses `useMe` and `useAuth`; renders `Sidebar`, `Header` and
-    `<Outlet/>`.
+*   **Proposed Changes**: uses `useMe` and `useAuth`; renders `Sidebar`, `Header` (with
+    `onSignOut={() => void logout()}`) and `<Outlet/>`; shows `LoadingSpinner` in the header
+    while `/me` loads.
 
 ##### 82. `src/pages/StartupErrorScreen.tsx`
 
 *   **Proposed Changes**: props `{ title: string; lines: string[] }`; a static page with no
-    hooks from `hooks/`, rendered by `bootstrap` before the router exists.
+    hooks from `hooks/`, rendered by `bootstrap` before the router exists. Texts:
+    [Fixed UI texts](#fixed-ui-texts).
 
 ##### 83. `src/pages/UsersListPage.tsx`
 
-*   **Proposed Changes**: URL search parameters, `usePagingParams` (with `resetPage` on every
-    filter change and `clampPageToTotal`), debounced text filters, `useUserList`,
-    `useAllRoles`, the status and set-password mutations with `ConfirmDialog`, and the
-    row-message area.
+*   **Proposed Changes**: as in [Users list](#users-list-f-10). Reads the filters from the URL
+    search parameters and `usePagingParams`. Keeps local drafts for `q` and `facilityScope`;
+    writes each draft to the URL, with `resetPage()`, once `useDebouncedValue(draft, 300)`
+    changes. Writes `status` and `roleId` to the URL at once, with `resetPage()`. After each
+    response it applies `clampPageToTotal`. Uses `useUserList`, `useAllRoles`, the status and
+    set-password mutations with their `ConfirmDialog`s, and the row-message area above the
+    table.
 
 ##### 84. `src/pages/UserCreatePage.tsx`
 
-*   **Proposed Changes**: `useAllRoles`, `useCreateUser`; builds `CreateUserRequest` field by
-    field (leaves out `facilityScope` when empty); on 201 navigates to `/users/{id}` with state
-    `{ created: true, email, warnings }`; on 502 shows `SyncFailedNotice`, keeping the form
-    usable.
+*   **Proposed Changes**: as in [User create](#user-create-f-11). `useAllRoles`,
+    `useCreateUser`; builds `CreateUserRequest` field by field (leaves out `facilityScope` when
+    empty); on 201 runs `void navigate('/users/{id}', { state: { created: true, email, warnings
+    } })`; on 502 shows `SyncFailedNotice`, and the form keeps its values.
 
 ##### 85. `src/pages/UserEditPage.tsx`
 
-*   **Proposed Changes**: `useUser` (with `describeError(..., { detailFetch: true })`),
-    `useAllRoles`, the four mutations; shows the created message from navigation state;
-    `NotFoundPanel` on `notFound`.
+*   **Proposed Changes**: as in [User edit](#user-edit-f-11). `useUser` (errors through
+    `describeError(..., { detailFetch: true })`), `useAllRoles`, the four mutations; passes
+    `mutateAsync` results to the forms' `onSubmit`; shows the created message from navigation
+    state; `NotFoundPanel` on `notFound`.
 
 ##### 86. `src/pages/RolesListPage.tsx`
 
-*   **Proposed Changes**: `usePagingParams`, `useRoleList`, `Pagination`, `useCreateRole`,
-    `useDeleteRole`; after create, navigation as in the Roles list section, passing
-    `{ createdWithSyncWarning: true }` in navigation state when the 201 carries
-    `ROLE_SYNC_FAILED`.
+*   **Proposed Changes**: as in [Roles list](#roles-list-f-12). `usePagingParams`,
+    `useRoleList`, `Pager`, `useCreateRole`, `useDeleteRole`. After a 201 it navigates to
+    `/roles/{id}`, or, when the response carries `ROLE_SYNC_FAILED`, to
+    `/roles/{id}?tab=permissions` with state `{ createdWithSyncWarning: true }`.
 
 ##### 87. `src/pages/RoleDetailPage.tsx`
 
-*   **Proposed Changes**: `useRole` (with `{ detailFetch: true }`), `useUpdateRole`; the header;
-    `NotFoundPanel` on `notFound`; tabs from the `tab` search parameter (`menus` default,
-    `permissions`); renders `RoleMenusTab` or `RolePermissionsTab`. No delete.
+*   **Proposed Changes**: as in [Role detail](#role-detail-f-13-f-14). `useRole` (with
+    `{ detailFetch: true }`), `useUpdateRole`; the header; `NotFoundPanel` on `notFound`; tabs
+    from the `tab` search parameter (`menus` default, `permissions`); renders `RoleMenusTab` or,
+    from step 4, `RolePermissionsTab`. No delete.
 
 ##### 88. `src/pages/role-detail/RoleMenusTab.tsx`
 
-*   **Proposed Changes**: `useMenuTree`, `useRoleMenus`, `useReplaceRoleMenus`; selection state;
-    client warnings from `detailsWithoutParent`; server warnings after save;
-    `useUnsavedChangesGuard`.
+*   **Proposed Changes**: as in [Menus tab](#menus-tab-f-13). `useMenuTree`, `useRoleMenus`,
+    `useReplaceRoleMenus`; selection state initialized once from the fetched `menuIds` and
+    reinitialized after a successful save; client warnings from `detailsWithoutParent`; server
+    warnings after save; `useUnsavedChangesGuard`.
 
 ##### 89. `src/pages/role-detail/RolePermissionsTab.tsx`
 
-*   **Proposed Changes**: `useRolePermissions`, `useReplaceRolePermissions`, `useSyncRole`;
-    `SyncStatusPanel`, `PermissionsEditor`, `SyncFailedNotice`; the created-with-sync-warning
-    notice from navigation state; form reset rules after a 502; `useUnsavedChangesGuard`.
+*   **Proposed Changes**: as in [Permissions tab](#permissions-tab-f-14).
+    `useRolePermissions`, `useReplaceRolePermissions`, `useSyncRole`; `SyncStatusPanel`,
+    `PermissionsEditor` rendered with `key={resetKey}`, `SyncFailedNotice`; the
+    created-with-sync-warning notice from navigation state. After a 2xx save or a
+    `ROLE_PERMISSIONS_SAVE` 502 it awaits the permissions query's `refetch()` and then
+    increments `resetKey`; nothing else changes `resetKey`. `useUnsavedChangesGuard`.
 
 ##### 90. `src/pages/MenusPage.tsx`
 
-*   **Proposed Changes**: `useMenuTree`, `useCreateMenu`, `useUpdateMenu`,
-    `useToggleMenuActive`; the inline `MenuForm` panel for add and edit; `ConfirmDialog` for
-    deactivate and activate only.
+*   **Proposed Changes**: as in [Menus catalog](#menus-catalog-f-15). `useMenuTree`,
+    `useCreateMenu`, `useUpdateMenu`, `useToggleMenuActive`; the inline `MenuForm` panel for add
+    and edit; `ConfirmDialog` for deactivate and activate only.
 
 ##### 91. `src/pages/NotFoundPage.tsx`
 
-*   **Proposed Changes**: "Page not found" with a link to `/users`.
+*   **Proposed Changes**: the not-found page texts of [Fixed UI texts](#fixed-ui-texts).
 
 #### Test support
 
@@ -1887,9 +2104,12 @@ button has a visible name, so tests can find them by role and label.
 
 ##### 93. `src/test/fakeAuth.ts`
 
-*   **Proposed Changes**: named exports `initAuth`, `getToken`, `refreshToken`, `login`,
-    `logout` as `vi.fn()`s with the default behaviour of the Technical Plan; the `satisfies`
-    statement (UI-AD-01); `resetFakeAuth()`, which resets every spy and reinstalls the defaults.
+*   **Proposed Changes**: `import type * as Real from '../auth/keycloak'`; named exports
+    `initAuth`, `getToken`, `refreshToken`, `login`, `logout`, each a typed spy such as
+    `vi.fn<typeof Real.initAuth>()`, with the default behavior of the
+    [test seam](#start-up-configuration-then-sign-in-then-render); the `satisfies` statement
+    (UI-AD-01), which with typed spies also catches signature changes; `resetFakeAuth()`, which
+    resets every spy and reinstalls the defaults.
 
 ##### 94. `src/test/render.tsx`
 
@@ -1898,30 +2118,38 @@ button has a visible name, so tests can find them by role and label.
     returns the render result, the user-event instance and the router. `createWrapper()`:
     a provider wrapper with a fresh query client, for `renderHook`.
 
-##### 95. `src/test/mocks/fixtures.ts`, `handlers.ts`, `requests.ts`, `server.ts`
+##### 95. MSW mocks
 
-*   **Proposed Changes**:
-    *   `fixtures.ts`: typed canned data (UI-AD-19), with fixed UUIDs.
-    *   `requests.ts`: a recorder: `recordRequest(req)`, `recordedRequests()`, `clearRequests()`.
-    *   `handlers.ts`: one `http.*` handler per endpoint the console calls, under
-        `*/admin/v1/...`, typed with the contract's request and response types; each records the
-        request and returns the fixture. Helpers `okResponse(data, extra?)` and
+*   **Proposed Changes**: four files.
+    *   `src/test/mocks/fixtures.ts`: typed canned data (UI-AD-19), with fixed UUIDs.
+    *   `src/test/mocks/requests.ts`: a recorder: `recordRequest(req)`, `recordedRequests()`,
+        `clearRequests()`.
+    *   `src/test/mocks/handlers.ts`: one `http.*` handler per endpoint the console calls, under
+        `*/admin/v1/...`, typed with the contract's request and response types; each records
+        the request and returns the fixture. Helpers `okResponse(data, extra?)` and
         `errorResponse(status, code, message, extra?)` build typed envelopes for overrides.
-    *   `server.ts`: `setupServer(...handlers)`.
+    *   `src/test/mocks/server.ts`: `setupServer(...handlers)`.
 
-##### 96. Lint fixtures (`__lint_fixtures__` folders)
+##### 96. Lint fixtures
 
-*   **Proposed Changes**: one file per import rule, in the folder of the group it tests, each
-    using its import so `tsc` reports no unused import:
-    *   `src/components/__lint_fixtures__/importsHook.tsx` (imports `../../hooks/useMe`),
-    *   `src/components/__lint_fixtures__/importsQuery.tsx` (`@tanstack/react-query`),
-    *   `src/pages/__lint_fixtures__/importsApi.tsx` (the value `getMe` from `../../api/me`),
-    *   `src/pages/__lint_fixtures__/importsContractType.tsx` (`import type` from
-        `../../api/contract`; must pass),
-    *   `src/utils/__lint_fixtures__/importsKeycloak.ts` (`keycloak-js`),
-    *   `src/utils/__lint_fixtures__/importsMsw.ts` (`msw`).
+*   **Proposed Changes**: seven fixtures, each in the folder of the file group it tests and
+    each using its import so `tsc` reports no unused import: one representative violation of
+    each of the four import rules, in the groups listed, and one allowed type import.
+    *   Rule 1 (no `api/` values in pages and components):
+        `src/pages/__lint_fixtures__/importsApi.tsx` (the value `getMe` from `../../api/me`).
+    *   Rule 2 (no `hooks/` or React Query in components):
+        `src/components/__lint_fixtures__/importsHook.tsx` (`../../hooks/useMe`) and
+        `src/components/__lint_fixtures__/importsQuery.tsx` (`@tanstack/react-query`).
+    *   Rule 3 (`keycloak-js` only in `auth/` and tests):
+        `src/utils/__lint_fixtures__/importsKeycloak.ts`.
+    *   Rule 4 (`msw` and `@playwright/test` only in tests):
+        `src/utils/__lint_fixtures__/importsMsw.ts` (`msw`) and
+        `src/auth/__lint_fixtures__/importsPlaywright.ts` (`@playwright/test`, in the `auth/`
+        group).
+    *   Allowed: `src/pages/__lint_fixtures__/importsContractType.tsx` (`import type` from
+        `../../api/contract`).
 
-    They are globally ignored by `npm run lint` and excluded from coverage, and are checked by
+    They are globally ignored by `npm run lint`, excluded from coverage, and checked by
     `src/test/__tests__/lintRules.test.ts`.
 
 #### Unit and component tests
@@ -1929,29 +2157,32 @@ button has a visible name, so tests can find them by role and label.
 Each screen's test file covers the happy path and at least one error code for each endpoint it
 calls (PRD §11).
 
-| File | Cases |
-|---|---|
-| `src/__tests__/config.test.ts` | defaults applied; empty realm reported missing; trimming; trailing `/` removed from the API base URL; only the four variables read |
-| `src/__tests__/bootstrap.test.tsx` | nothing renders while `initAuth` is pending; start-up screen on rejection with the sign-in text; realm missing: screen names `VITE_KEYCLOAK_REALM` and `initAuth` is never called |
-| `src/auth/__tests__/keycloak.test.ts` | `init` options; no session → reject; the 60-second interval calls `updateToken(70)`; a failed interval refresh does not call `login`; `refreshToken` true; `refreshToken` false calls `login` |
-| `src/api/__tests__/client.test.ts` | URL and query building; headers; envelope unwrap with `pagination` and `warnings`; 204; error envelope with `details` and `partialState`; non-envelope body → `CLIENT_UNEXPECTED_RESPONSE` with the status; `CLIENT_NETWORK_ERROR`; no token → `login` and 401; 401 then 200; 401 twice → 401 thrown, `login` not called by the client; `refreshToken` false → 401 thrown |
-| `src/utils/__tests__/describeError.test.ts` | every row of the kinds table, including a non-envelope 403 → `forbidden` and a non-envelope 500 → `unexpected`; the `id` detail → `notFound` only with `{ detailFetch: true }` |
-| `src/utils/__tests__/formErrors.test.ts` | path conversion; field and top-level split; conflict codes to fields; role messages from `roleIds[i]` |
-| `src/utils/__tests__/menuTree.test.ts` | flatten; `nextSortOrder`; `detailsWithoutParent` with and without the parent |
-| `src/utils/__tests__/permissions.test.ts` | normalization; set comparison ignores order and method case; empty optional fields dropped |
-| `src/schemas/__tests__/schemas.test.ts` | one pass and one fail case for each rule in `rules.ts` and each console-only rule |
-| `src/hooks/__tests__/useRoles.test.tsx` | `useAllRoles`: three pages joined in order; repeated ids dropped; stops at five pages and reports `truncated` |
-| `src/test/__tests__/lintRules.test.ts` | runs ESLint's Node API with `ignore: false` on the six lint fixtures (`// @vitest-environment node`); five report `@typescript-eslint/no-restricted-imports`, the contract type import reports nothing |
-| `src/components/shared/__tests__/SyncFailedNotice.test.tsx` | each table row's text; the empty-steps rule; the `ROLE_SYNC` rule; operator ids shown when present; no user link for `USER_CREATE` |
-| `src/pages/__tests__/AppLayout.test.tsx` | header shows username and roles; `/me` 403 shows the message and the sidebar still shows three links; Sign out calls `logout` |
-| `src/pages/__tests__/UsersListPage.test.tsx` | filters and paging to recorded query parameters; a filter change sets `page` to 1; debounce; invalid paging corrected; past-last-page correction; status actions with confirm; set-password email shows the address; 502 `USER_PASSWORD_RESET` empty-steps text; `LAST_SYSTEM_ADMIN` inline; 403 with and without the envelope inline |
-| `src/pages/__tests__/UserCreatePage.test.tsx` | client validation; one `POST` with the exact body; navigation and created message; `ACTION_EMAIL_NOT_SENT`; `USERNAME_IN_USE` and `EMAIL_IN_USE` on fields; `ROLE_NOT_SYNCED` and `ROLE_NOT_ASSIGNABLE` name the role; 502 with and without completed steps, form still usable; a mutation network error shows the "result is unknown" text |
-| `src/pages/__tests__/UserEditPage.test.tsx` | profile `PUT` with `facilityScope: null` when empty; `EMAIL_IN_USE` on update; roles Save disabled until changed, sends the full set; status change; set-password email; `LAST_SYSTEM_ADMIN`; 404 and malformed id show `NotFoundPanel` |
-| `src/pages/__tests__/RolesListPage.test.tsx` | paging; name rule; warning and confirm; `POST` only after Confirm; navigation to the new role; 201 with `ROLE_SYNC_FAILED` opens the Permissions tab with the notice; `DUPLICATE_ROLE_NAME` on the field; Delete hidden for system roles and disabled when assigned; `ROLE_IN_USE` inline; 403 inline |
-| `src/pages/__tests__/RoleDetailPage.test.tsx` | header and tabs; `PUT /roles/:id` success; `SYSTEM_ROLE_IMMUTABLE` inline; form disabled for a system role; `ROLE_NOT_FOUND` shows `NotFoundPanel` |
-| `src/pages/__tests__/RoleMenusTab.test.tsx` | tree and current selection with path and type; Save disabled until changed; full-set body; client warning; server warning with labels; 403 on save inline; system role read-only; unsaved-changes guard on tab switch |
-| `src/pages/__tests__/RolePermissionsTab.test.tsx` | implicit rows read-only and not sent; add and remove rows; duplicate and implicit-equal rows rejected; Save disabled until changed; 200 shows "Saved." and "Synced"; 502 with steps refetches and shows "Sync failed"; 502 without steps keeps edits; Re-sync 200 and 502; system role read-only with Re-sync enabled |
-| `src/pages/__tests__/MenusPage.test.tsx` | tree with indentation and icons; unknown icon fallback; add `NAV` with default sort order; add `DETAIL` under a `NAV`; `DUPLICATE_MENU_KEY` on key; edit without key and type in the body; `VALIDATION_ERROR` on `PUT` mapped to its field; deactivate and activate read the tree again and send the full body with `isActive` flipped |
+| File | Step | Cases |
+|---|---|---|
+| `src/__tests__/config.test.ts` | 2 | defaults applied; empty realm reported missing; trimming; trailing `/` removed from the API base URL; with `VITE_AUTH_ENABLED=false` and `VITE_AUTH_TOKEN=x` stubbed, `readConfig()` returns the same result |
+| `src/__tests__/configSource.test.ts` | 2 | `// @vitest-environment node`; reads every `.ts` and `.tsx` file under `src/` with Node `fs` (`readdirSync` with `recursive: true`), except test files, `src/test/**` and `__lint_fixtures__`; asserts `import.meta.env` occurs only in `src/config.ts`, and that the names read there (`import.meta.env.NAME`) are exactly the four §8.3 variables |
+| `src/__tests__/bootstrap.test.tsx` | 2 | nothing renders while `initAuth` is pending; the sign-in start-up texts on rejection; realm missing: the configuration texts name `VITE_KEYCLOAK_REALM` and `initAuth` is never called |
+| `src/auth/__tests__/keycloak.test.ts` | 2 | `init` options; no session → reject; the 60-second interval calls `updateToken(70)`; a failed interval refresh does not call `login`; `refreshToken` true; `refreshToken` false calls `login` |
+| `src/api/__tests__/client.test.ts` | 2 | URL and query building; headers; envelope unwrap with `pagination` and `warnings`; a 2xx with an empty or HTML body → `CLIENT_UNEXPECTED_RESPONSE` with the status; `apiDelete` on 204; error envelope with `details` and `partialState`; non-envelope error body → `CLIENT_UNEXPECTED_RESPONSE` with the status; `CLIENT_NETWORK_ERROR`; no token → `login` and 401; 401 then 200; 401 twice → 401 thrown, `login` not called by the client; `refreshToken` false → 401 thrown |
+| `src/hooks/__tests__/queryClient.test.ts` | 2 | a query retries once on status 0 and on a 503; no retry on a 400 or a 409; a mutation success and a 502 refetch active queries; a 409 with the envelope does not; every `queryKeys` function returns its key |
+| `src/utils/__tests__/describeError.test.ts` | 2 | every row of the kinds table, including a non-envelope 403 → `forbidden` and a non-envelope 500 → `unexpected`; the `id` detail → `notFound` only with `{ detailFetch: true }` |
+| `src/utils/__tests__/formErrors.test.ts` | 2 | path conversion; exact and prefix field matching; field and top-level split; conflict codes to fields; role messages from `roleIds[i]`, with the "Role {id}" fallback |
+| `src/test/__tests__/lintRules.test.ts` | 2 | `// @vitest-environment node`, timeout 60000 ms; runs ESLint's Node API with `ignore: false` on the seven lint fixtures; the six violations report `@typescript-eslint/no-restricted-imports`, the allowed type import reports nothing |
+| `src/components/shared/__tests__/InlineError.test.tsx` | 2 | the text of each kind; Retry shown only with `onRetry`; the "result is unknown" text with `mutation` |
+| `src/components/shared/__tests__/SyncFailedNotice.test.tsx` | 2 | each table row's text for each of the seven operations; the empty-steps rule; the `ROLE_SYNC` rule; Keycloak user id shown when present; audit log id shown when present and left out when `null`; no user link for `USER_CREATE` |
+| `src/pages/__tests__/AppLayout.test.tsx` | 2 | header shows username and roles; `/me` 403 shows the message and the sidebar still shows three links; Sign out calls `logout`; an unknown path shows the not-found page |
+| `src/hooks/__tests__/useRoles.test.tsx` | 3 | `useAllRoles`: three pages joined in order; repeated ids dropped; stops at five pages and reports `truncated`; non-assignable roles are returned |
+| `src/utils/__tests__/menuTree.test.ts` | 3 | flatten; `nextSortOrder`; `detailsWithoutParent` with and without the parent |
+| `src/schemas/__tests__/schemas.test.ts` | 3 to 6 | one pass and one fail case for each rule in `rules.ts` and each console-only rule, added with each schema |
+| `src/pages/__tests__/RolesListPage.test.tsx` | 3 | `GET /roles` 500 shows `InlineError`; paging; name rule; warning and confirm; `POST` only after Confirm; navigation to the new role; 201 with `ROLE_SYNC_FAILED` navigates to `/roles/{id}?tab=permissions` with `createdWithSyncWarning` in the state; `DUPLICATE_ROLE_NAME` on the field; Delete hidden for system roles and disabled when assigned; `ROLE_IN_USE` inline; 403 inline |
+| `src/pages/__tests__/RoleDetailPage.test.tsx` | 3 | header and tabs; `PUT /roles/:id` success; `SYSTEM_ROLE_IMMUTABLE` inline; form disabled for a system role; `ROLE_NOT_FOUND` shows `NotFoundPanel` |
+| `src/pages/__tests__/RoleMenusTab.test.tsx` | 3 | `GET /menus` 500 and `GET /roles/:id/menus` 403 shown inline; tree and current selection with path and type; Save disabled until changed; full-set body; client warning; server warning with labels; 403 on save inline; system role read-only; unsaved-changes guard on tab switch |
+| `src/utils/__tests__/permissions.test.ts` | 4 | normalization; set comparison ignores order and method case; empty optional fields dropped |
+| `src/pages/__tests__/RolePermissionsTab.test.tsx` | 4 | `GET /roles/:id/permissions` 403 inline; the created-with-sync-warning notice from navigation state; implicit rows read-only and not sent; add and remove rows; duplicate and implicit-equal rows rejected; Save disabled until changed; 200 shows "Saved." and "Synced"; 502 `ROLE_PERMISSIONS_SAVE` refetches the rows, remounts the editor with them and shows "Sync failed"; Re-sync 200 and 502 `ROLE_SYNC`; Re-sync with unsaved edits keeps the edits; system role read-only with Re-sync enabled |
+| `src/pages/__tests__/UsersListPage.test.tsx` | 5 | filters and paging to recorded query parameters; a filter change sets `page` to 1; debounce; invalid paging corrected in the URL; past-last-page correction; status actions with confirm and the success texts; set-password email shows the address; 502 `USER_PASSWORD_RESET` empty-steps text; `LAST_SYSTEM_ADMIN` inline; `CCE_ADMIN_SERVICE` not offered in the role filter; 403 with and without the envelope inline |
+| `src/pages/__tests__/UserCreatePage.test.tsx` | 5 | `GET /roles` 500 shows `InlineError` at the role list; `CCE_ADMIN_SERVICE` not offered; client validation; one `POST` with the exact body; navigation and created message; `ACTION_EMAIL_NOT_SENT`; `USERNAME_IN_USE` and `EMAIL_IN_USE` on fields; `ROLE_NOT_SYNCED` and `ROLE_NOT_ASSIGNABLE` name the role; 502 with and without completed steps, form still usable with its values; a mutation network error shows the "result is unknown" text |
+| `src/pages/__tests__/UserEditPage.test.tsx` | 5 | `GET /roles` 500 shows `InlineError` at the role list; profile `PUT` with `facilityScope: null` when empty; `EMAIL_IN_USE` on update; roles Save disabled until changed, sends the full set; a held role without a checkbox is listed under "Also held:" and kept in the request; status change; set-password email; `LAST_SYSTEM_ADMIN`; 502 `USER_PROFILE_UPDATE` and 502 `USER_ROLES_UPDATE` with completed steps keep the edited values after the refetch, and saving again sends the same body; 404 and malformed id show `NotFoundPanel` |
+| `src/pages/__tests__/MenusPage.test.tsx` | 6 | `GET /menus` 500 shows `InlineError`; tree with indentation and icons; unknown icon fallback; add `NAV` with default sort order; add `DETAIL` under a `NAV`; `DUPLICATE_MENU_KEY` on key; edit without key and type in the body; `VALIDATION_ERROR` on `PUT` mapped to its field; deactivate and activate read the tree again and send the full body with `isActive` flipped |
 
 #### Browser tests
 
@@ -1969,7 +2200,10 @@ calls (PRD §11).
 ##### 98. `e2e/global-setup.ts`
 
 *   **Proposed Changes**: checks the service health and the stand-in mode endpoint; sets the
-    stand-in to `ok`; fails with the admin-service §9.3 start commands if either check fails.
+    stand-in to `ok`; reads `GET /roles?page=1&pageSize=1` with an API token and stops if
+    `totalItems` is above 400, with "Too many roles for the role pickers. Reset the local stack:
+    docker compose --profile app down -v (admin-service §9.3)." Fails with the admin-service
+    §9.3 start commands if either first check fails.
 
 ##### 99. `e2e/auth.setup.ts`
 
@@ -1984,9 +2218,11 @@ calls (PRD §11).
         `grant_type=password`, `client_id=cce-e2e`, `username`, `password`; offers
         `createRole(stem)`, `setRolePermissions(id, rows)`, `createUser(stem, roleIds)`,
         `getUser(id)`.
-    *   Fixture `suffix`: digits only, `Date.now()` followed by three random digits.
-    *   Names: roles `E2E_{STEM}_{suffix}` with `STEM` in capitals; usernames `e2e-{stem}-{suffix}`;
-        emails `e2e-{stem}-{suffix}@cce.local`.
+    *   Fixture `suffix`: digits only, `Date.now()` followed by three random digits (16 digits).
+    *   Stems: 1 to 10 upper-case letters or digits, for example `CUJ2A`, so every name fits
+        both rules of admin-service §4.4.
+    *   Names: roles `E2E_{STEM}_{suffix}`; usernames `e2e-{stem}-{suffix}` and emails
+        `e2e-{stem}-{suffix}@cce.local`, with the stem in lower case.
     *   Plain export `setStubMode(mode: 'ok' | 'fail')`: `PUT` to the stand-in URL with
         `Content-Type: text/plain` and the mode as the body.
     *   Helper `expectHeaderUser(page)`: checks the test administrator's username in the header.
@@ -2027,15 +2263,12 @@ calls (PRD §11).
         Re-sync before assigning it." on its Permissions tab, with "Sync failed".
     4.  Adds a rule and saves; sees the `ROLE_PERMISSIONS_SAVE` text, the refetched row and
         "Sync failed".
-    5.  Opens the user, adds B, saves roles; sees "Not synced yet: … (B's name)".
+    5.  Opens the user, adds B, saves roles; sees "Not synced yet: {displayName} ({name}).
+        Open the role and use Re-sync." for role B.
     6.  Sets the stand-in to `ok`; presses Re-sync on B; sees "Synced".
-    7.  Saves the user's roles again and sees success; checks the header.
+    7.  Saves the user's roles again and sees "Roles saved."; checks the header.
 
     A `finally` block sets the stand-in to `ok`.
-
-#### Files outside `cce-admin-ui/`
-
-None are changed by the implementation.
 
 ### Verification Plan
 
@@ -2048,10 +2281,11 @@ None are changed by the implementation.
     *   `docker build .` without the realm fails with `VITE_KEYCLOAK_REALM is required for a
         build (PRD §8.3)`.
 *   **Unit Tests**: `npm run test:ci` on Node 22.22 (and in the `verify` stage on Node 20).
-*   **Static Analysis & Linting**: `npm run lint` (ESLint with the four import rules, and
-    Prettier); `lintRules.test.ts` proves each rule fires.
+*   **Static Analysis & Linting**: `npm run lint` (ESLint with the promise rules and the four
+    import rules, and Prettier); `lintRules.test.ts` checks one representative violation of each
+    of the four import rules and one allowed type import.
 *   **Test Coverage Requirement**: the thresholds in `vitest.config.ts` (80% lines, statements
-    and functions, 70% branches), enforced by `test:ci`.
+    and functions, 70% branches, over all files together), enforced by `test:ci`.
 *   **E2E/Integration**:
     *   Start the admin-service stack and service (admin-service §9.3), run
         `npx playwright install chromium` once, export the two credential variables, then
@@ -2059,7 +2293,10 @@ None are changed by the implementation.
     *   `docker run --rm cce-admin-ui:local` without `GATEWAY_UPSTREAM` exits with a non-zero
         status and prints "GATEWAY_UPSTREAM is required".
     *   No gateway runs locally (C-05), so this check points `GATEWAY_UPSTREAM` at the service
-        itself: `docker run --rm -d -p 3002:3002
+        itself. It needs the service started on the host with `./mvnw spring-boot:run`
+        (admin-service §9.3), which listens on all interfaces; under `--profile app` the
+        service's port is bound to `127.0.0.1` and the container cannot reach it. Run
+        `docker run --rm -d -p 3002:3002
         -e GATEWAY_UPSTREAM=http://host.docker.internal:8085
         --add-host=host.docker.internal:host-gateway cce-admin-ui:local`. Then
         `curl -s -o /dev/null -w '%{http_code}' http://localhost:3002/users` prints `200` and

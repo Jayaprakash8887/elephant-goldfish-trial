@@ -391,7 +391,7 @@ client/ audit/ config/`, under the base package `org.cce.admin`.
 | Package | Holds | Rule |
 |---|---|---|
 | `controller` | REST controllers, request and response records (`controller/dto`), the `@RestControllerAdvice` that maps exceptions to error bodies | Shapes HTTP only. Calls exactly one service method per endpoint. No repository or client access. |
-| `service` | One service class per resource (users, roles, role menus, role permissions, menus, current user), the gateway sync procedure, the bootstrapper, the domain exceptions | Owns transactions, validation that needs the database, the order of operations in each flow, and the audit calls. |
+| `service` | One service class per resource (users, roles, role menus, role permissions, menus, current user, health), the gateway sync procedure, account linking, the bootstrapper, the domain exceptions | Owns transactions, validation that needs the database, the order of operations in each flow, and the audit calls. |
 | `repository` | Spring Data JPA repositories | Queries only. |
 | `entity` | JPA entities for the seven tables | No business logic. |
 | `security` | JWT decoder and validators, the roles reader, the local-user filter, the permission filter, the 401 and 403 writers | Runs before any controller. |
@@ -440,6 +440,13 @@ in that step, and later steps do not run.
 6.  **Controller.** Request bodies and query parameters are validated with Bean Validation
     before the service runs (400 `VALIDATION_ERROR`).
 
+**Rules for the two filters of steps 4 and 5.** Each filter passes the request on unchanged
+unless its authentication is a `JwtAuthenticationToken`, so a request with no token reaches
+Spring Security's own 401 handling (step 2). Step 5 returns 403 without running its query when
+the caller has no role names. An unexpected exception inside either filter, such as a database
+outage, is caught there and answered with 500 `INTERNAL_ERROR` in the error envelope, because
+exceptions thrown in filters never reach the controller advice.
+
 **Configuration parity (PRD §9).** `JWT_ISSUER`, `JWT_AUDIENCE` and `JWT_ROLES_CLAIM_PATH` must
 hold the same values as gateway-service's configuration for the same realm. Locally they are
 `http://localhost:8180/auth/realms/cce`, `gateway-service` and `realm_access.roles` (section 9).
@@ -471,7 +478,8 @@ and the service fails at startup if the variable is missing. Local values live i
     after trimming. An optional string that is empty after trimming is treated as null.
 *   **Null fields.** Only four optional fields are left out of a response when they have no
     value: `pagination`, `warnings`, `details` and `partialState`. Every other field is always
-    written, as `null` when it has no value.
+    written, as `null` when it has no value. The one exception is a warning's reference fields:
+    each warning carries exactly the fields its `code` defines (see Warning below).
 *   **Identifiers.** User, role, menu and audit ids are UUID strings. Permission row ids are
     integers, because `api_permissions.id` is `BIGSERIAL` (DEV-1). An id in the path that is not
     a valid UUID gets 400 `VALIDATION_ERROR`, with the path parameter name as the field.
@@ -481,8 +489,11 @@ and the service fails at startup if the variable is missing. Local values live i
     `{ "data": <payload>, "pagination"?: <Pagination>, "warnings"?: [<Warning>] }` (DEV-5).
     `pagination` appears only on paginated lists, and `warnings` only when there is at least one
     warning.
-*   **Warning.** `{ "code": string, "message": string, "menuId"?: uuid, "parentMenuId"?: uuid }`.
-    A warning carries only the reference fields its code defines:
+*   **Warning.** A union on `code`. Every warning has `code` and `message`.
+    `DETAIL_WITHOUT_PARENT` also always has `menuId` and `parentMenuId`, both UUIDs. The other two
+    codes have neither field, not even as `null`:
+    `{ "code": "DETAIL_WITHOUT_PARENT", "message": string, "menuId": uuid, "parentMenuId": uuid }`
+    or `{ "code": "ACTION_EMAIL_NOT_SENT" | "ROLE_SYNC_FAILED", "message": string }`.
 
     | Warning code | Returned by | Reference fields |
     |---|---|---|
@@ -635,7 +646,7 @@ statuses is allowed (AD-04). A status value outside the three gets 400 `VALIDATI
 | Field | Type | Notes |
 |---|---|---|
 | `id` | integer | `api_permissions.id`. Response only. Ids change on every save, because the save replaces the rows. |
-| `httpMethod` | string | One of exactly `GET`, `POST`, `PUT`, `PATCH`, `DELETE`. This list is fixed by the contract and is not configurable, so a console can offer exactly these five ([console design, CQ-1](../../docs/designs/cce-admin-ui.md#points-about-the-contract-raised-by-this-design-decided)). Accepted in any case and stored in upper case. No wildcard method. |
+| `httpMethod` | string | One of exactly `GET`, `POST`, `PUT`, `PATCH`, `DELETE`. This list is fixed by the contract and is not configurable, so a console can offer exactly these five ([console design, UI-AD-05, formerly CQ-1](../../docs/designs/cce-admin-ui.md#author-decisions-in-this-design)). Accepted in any case and stored in upper case. No wildcard method. |
 | `uriPattern` | string | 1 to 255 characters. Starts with `/`, has no empty segment (`//`), and is made only of letters, digits and `- . _ ~ / *`. `**` may only be the whole last segment. Matching follows section 3, step 5. There is no prefix rule: patterns for other services, such as `/v1/insights/**`, are valid, because the gateway guards those too. |
 | `description` | string or null | Up to 1000 characters. |
 | `resourceCategory` | string or null | Up to 50 characters, free text. |
@@ -657,8 +668,8 @@ as it is at the gateway and in step 5.
 `{ "id": uuid, "key": string, "label": string, "path": string, "icon": string | null, "type": "NAV" | "DETAIL", "sortOrder": int, "children": [item] }`.
 
 **Named result records.** `ResetPasswordResult` is `{ "userId": uuid, "email": string }`.
-`RoleSyncResult` is `{ "roleId": uuid, "syncStatus": string, "lastSyncAt": instant }`.
-`RolePermissions` is `{ "roleId": uuid, "syncStatus": string, "lastSyncAt": instant | null, "permissions": [Permission row] }`.
+`RoleSyncResult` is `{ "roleId": uuid, "syncStatus": "NEVER" | "SYNCED" | "FAILED", "lastSyncAt": instant }`.
+`RolePermissions` is `{ "roleId": uuid, "syncStatus": "NEVER" | "SYNCED" | "FAILED", "lastSyncAt": instant | null, "permissions": [Permission row] }`.
 `RoleMenus` is `{ "roleId": uuid, "menuIds": [uuid] }`.
 
 #### 4.5 Endpoints
@@ -802,8 +813,8 @@ name, used in `partialState.failedStep` and `completedSteps`.
 8.  Return 201.
 
 A failure in step 5 or 6 gives a 502 whose `keycloakUserId` is the Keycloak user (B-32).
-Steps 5 and 6 are the **linking method**, `UserService.linkAccount`, which the bootstrapper also
-uses (5.13).
+Steps 5 and 6 are the **linking method**, `AccountLinker.link`, which the bootstrapper also uses
+(5.13).
 
 #### 5.2 Update profile (`PUT /users/:id`, `USER_PROFILE_UPDATE`)
 
@@ -941,10 +952,11 @@ is logged at `ERROR`, and the service still starts.
     verification.
 4.  If the `SUPER_ADMIN` realm role does not exist in Keycloak, log an error and stop. Creating
     it is a bootstrap step (section 9.5), and the bootstrapper never runs a sync.
-5.  Call the linking method (5.1 steps 5 and 6) with the Keycloak user's username, email and
-    names and the role `SUPER_ADMIN`. When a local row for that `keycloak_id` already exists, set
-    it to `ACTIVE` and add the `SUPER_ADMIN` row instead, writing `USER_ROLES_UPDATED`. The actor
-    is `system:bootstrap`.
+5.  If no local row has that `keycloak_id`, call `AccountLinker.link` (5.1 steps 5 and 6) with
+    the Keycloak user's username, email and names and the role `SUPER_ADMIN`. If a local row
+    exists, call `AccountLinker.reactivateAsAdmin`: it adds the `SUPER_ADMIN` realm role mapping
+    when missing, sets the row `ACTIVE`, adds the `SUPER_ADMIN` `user_roles` row, and writes
+    `USER_ROLES_UPDATED`. The actor is `system:bootstrap`.
 
 ### 6. Data dictionary and seed (B-01, B-02)
 
@@ -1077,8 +1089,10 @@ table name keeps this service's history apart from any other Flyway history in t
     rows are inserted with `ON CONFLICT (permission_name, http_method, uri_pattern) DO NOTHING`,
     which works whatever the existing constraint is called.
 
-**Seed menus** (B-02, AD-03). The ids are fixed UUIDs written in `V3__seed.sql`, and every row is
-active.
+**Seed menus** (B-02, AD-03). Every row is active. The ids are fixed: the menu in table row NN
+(01 to 12, in the order below) has id `10000000-0000-4000-8000-0000000000NN`, so `dashboard` is
+`10000000-0000-4000-8000-000000000001` and `patients.patient-detail` is
+`10000000-0000-4000-8000-000000000012`.
 
 | key | label | path | icon | type | parent | sort |
 |---|---|---|---|---|---|---|
@@ -1101,7 +1115,9 @@ assignment above is the author's choice, because the inputs do not map icons to 
 easy to change: an administrator can change any icon with `PUT /menus/:id`, with no migration
 and no release.
 
-**Seed roles.** Both start with `sync_status = NEVER` and are granted no menus.
+**Seed roles.** Both start with `sync_status = NEVER` and are granted no menus. Their ids are
+`20000000-0000-4000-8000-000000000001` (`SUPER_ADMIN`) and
+`20000000-0000-4000-8000-000000000002` (`CCE_ADMIN_SERVICE`).
 
 *   **`SUPER_ADMIN`**: display "Super administrator", description "Platform administrator with
     full access to the admin API." `is_system = true`, `is_assignable = true`.
@@ -1125,9 +1141,13 @@ and no release.
 ### 7. Clients
 
 **`KeycloakGateway`** (`client/`). The service's only access to Keycloak. Its implementation uses
-`keycloak-admin-client`, built with `KeycloakBuilder` and a `ResteasyClientBuilder` whose
-`connectTimeout` and `readTimeout` come from `KEYCLOAK_CONNECT_TIMEOUT` and
-`KEYCLOAK_READ_TIMEOUT`. It authenticates with the client-credentials grant of
+`keycloak-admin-client`, built with `KeycloakBuilder`. Its HTTP client is built the way the
+library builds its own, plus timeouts:
+`((ResteasyClientBuilder) ClientBuilder.newBuilder()).connectionPoolSize(10).connectTimeout(KEYCLOAK_CONNECT_TIMEOUT).readTimeout(KEYCLOAK_READ_TIMEOUT).register(new org.keycloak.admin.client.JacksonProvider(), 100).build()`,
+passed to `KeycloakBuilder.resteasyClient(...)`. Registering the library's `JacksonProvider`
+keeps its tolerance of unknown JSON fields, which matters because the server (26.4.7) is newer
+than the client (26.0.12). `createUser` closes the `Response` of `users().create(...)` in a
+`try` block and reads the id with `CreatedResponseUtil.getCreatedId`. It authenticates with the client-credentials grant of
 `KEYCLOAK_ADMIN_CLIENT_ID` and `KEYCLOAK_ADMIN_CLIENT_SECRET` against `KEYCLOAK_SERVER_URL`,
 realm `KEYCLOAK_REALM`. `KeycloakUserInfo` is
 `{ id, username, email, firstName, lastName, enabled, emailVerified, realmRoles }`.
@@ -1220,9 +1240,31 @@ reads `env_file: .env`.
 |---|---|---|---|
 | `postgres` | `postgres:16.15-alpine` | 5433 → 5432 | Database `admin_service`, user `admin_service`, password `${POSTGRES_PASSWORD}`. An init script creates a second database, `keycloak`. Volume `pgdata`. Health check `["CMD", "pg_isready", "-U", "admin_service", "-d", "admin_service"]`. Port 5433 avoids a Postgres already running on 5432. |
 | `keycloak` | `quay.io/keycloak/keycloak:26.4.7` | 8180 → 8080 | Runs `start-dev --import-realm`. `KC_HTTP_RELATIVE_PATH=/auth`. `KC_HTTP_MANAGEMENT_RELATIVE_PATH=/`. `KC_HOSTNAME=http://localhost:8180/auth`, so the issuer is the same from the browser, the host and other containers. `KC_HOSTNAME_BACKCHANNEL_DYNAMIC=true`, so containers can reach it at `http://keycloak:8080/auth`. Database `keycloak` on `postgres`. `KC_BOOTSTRAP_ADMIN_USERNAME=admin`, `KC_BOOTSTRAP_ADMIN_PASSWORD=${KEYCLOAK_ADMIN_PASSWORD}`. `KC_HEALTH_ENABLED=true`. Imports `keycloak/realm-cce.json`. The image has no curl or wget, so the health check uses bash: `["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/9000 && printf 'GET /health/ready HTTP/1.0\\r\\n\\r\\n' >&3 && grep -q UP <&3"]`. `depends_on` `postgres` healthy. |
-| `mailpit` | `axllent/mailpit:v1.33.1` | 8025 (web UI and API) | SMTP on `mailpit:1025` inside the network. Captures mail, delivers none (AD-08). |
+| `mailpit` | `axllent/mailpit:v1.33.1` | 8025 (web UI and API) | SMTP on `mailpit:1025` inside the network. Captures mail, delivers none (AD-08). Relies on the health check built into its image. |
 | `gateway-stub` | build context `.`, `dockerfile: gateway-stub/Dockerfile` | 8090 | The stand-in (AD-11). Variables in the table below. Health check `GET /_stub/mode`. `depends_on` `postgres` and `keycloak` healthy. |
-| `admin-service` | build context `.` | 8085 | Only with `--profile app`. Uses the in-network URLs: `jdbc:postgresql://postgres:5432/admin_service`, `http://keycloak:8080/auth` and `http://gateway-stub:8090`. `JWT_ISSUER` stays `http://localhost:8180/auth/realms/cce`. `depends_on` `postgres`, `keycloak` and `gateway-stub` healthy. |
+| `admin-service` | build context `.` | 8085 | Only with `--profile app`. The block is written out below. |
+
+**The `admin-service` block:**
+
+```yaml
+admin-service:
+  profiles: [app]
+  build: .
+  ports: ["127.0.0.1:8085:8085"]
+  env_file: .env
+  environment:
+    DATABASE_URL: jdbc:postgresql://postgres:5432/admin_service
+    KEYCLOAK_SERVER_URL: http://keycloak:8080/auth
+    JWT_JWK_SET_URI: http://keycloak:8080/auth/realms/cce/protocol/openid-connect/certs
+    GATEWAY_BASE_URL: http://gateway-stub:8090
+  depends_on:
+    postgres: { condition: service_healthy }
+    keycloak: { condition: service_healthy }
+    gateway-stub: { condition: service_healthy }
+```
+
+`JWT_ISSUER` is not overridden. It stays `http://localhost:8180/auth/realms/cce`, the issuer
+Keycloak writes into every token because of `KC_HOSTNAME`.
 
 **Stand-in variables** (set in the compose file):
 
@@ -1233,16 +1275,16 @@ reads `env_file: .env`.
 | `KEYCLOAK_SERVER_URL`, `KEYCLOAK_REALM` | `http://keycloak:8080/auth`, `cce` |
 | `STUB_CLIENT_ID`, `STUB_CLIENT_SECRET` | `cce-gateway-stub`, `${GATEWAY_STUB_CLIENT_SECRET}` |
 
-**What the stand-in does.** `POST /api/permissions/sync-to-keycloak` returns 401 when there is
-no `Authorization: Bearer` header, and checks nothing else about the token. In `fail` mode it
-returns 503 and changes nothing. Otherwise it reads the distinct `permission_name` values,
+**What the stand-in does.** `POST /api/permissions/sync-to-keycloak` checks, in this order: in
+`fail` mode it returns 503 and changes nothing; without an `Authorization: Bearer` header it
+returns 401, and it checks nothing else about the token. Otherwise it reads the distinct `permission_name` values,
 lists the realm roles with their attributes (`?briefRepresentation=false`), creates a realm role
 with the attribute `cce-managed=true` for every name that has none, deletes realm roles that
 carry `cce-managed=true` and no longer have rows, and returns 200. It never creates, changes or
 deletes Keycloak's built-in roles (`default-roles-<realm>`, `offline_access`,
 `uma_authorization`) and never deletes `SUPER_ADMIN`. `PUT /_stub/mode` with body `ok` or `fail`
 switches it at runtime, with no token. The mode lives in memory and starts as `ok`. Its README
-says plainly that it is a stand-in, not the gateway.
+says that it is a stand-in, not the gateway.
 
 #### 9.2 Realm `cce` (`keycloak/realm-cce.json`)
 
@@ -1604,46 +1646,52 @@ the decision it lost to and gives its trade-off in one line.
 ### How to use this plan
 
 *   **One phase per run.** A coding agent builds one phase at a time. Each phase starts from the
-    previous phase's committed result and ends when its exit check passes.
-*   **Every phase leaves the build green.** From phase 1 on, `./mvnw verify` passes at the end of
-    every phase. Phase 8, the API-level E2E, runs last, against the full stack.
-*   **No design decisions are left to the implementer.** If something here seems to need one, or
-    the design looks wrong, stop and raise it as a change to this document.
+    previous phase's committed result and ends when its exit check passes. `./mvnw verify`
+    passes at the end of every phase. It never runs the E2E tests, which Phase 8 adds under
+    `-Pe2e`.
+*   **Do not make design decisions.** If a step needs one, or the design looks wrong, stop and
+    raise it as a change to this document.
 *   **Paths.** All paths are relative to `cce-admin-service/`, which sits at the repository root.
     `{main}` is `src/main/java/org/cce/admin` and `{test}` is `src/test/java/org/cce/admin`. Every
     Java file is in the package its folder names.
-*   **Versions.** Every version and image tag comes from D-05
+*   **Versions.** Every image tag and Maven dependency version comes from D-05
     ([author-decisions.md](../../docs/designs/author-decisions.md)). The service's dependencies
     take their versions from `spring-boot-starter-parent` 3.5.16, except springdoc 2.10.0 and
-    `keycloak-admin-client` 26.0.12, which are written explicitly. The wrapper is generated with
-    `maven-wrapper-plugin` 3.3.4. The stand-in's `pom.xml` also uses `spring-boot-starter-parent`
-    3.5.16, only for plugin and library versions, with no Spring dependency at runtime.
-*   **Fixed coordinates.** groupId `org.cce`, artifactId `cce-admin-service`, version
-    `0.1.0-SNAPSHOT`. The stand-in is `org.cce:cce-gateway-stub`, package `org.cce.gatewaystub`.
-*   **Tests never read `.env`.** Every Spring test runs with `@ActiveProfiles("test")`, and the
-    `.env` import is active only outside that profile.
-*   **Never commit** `.env`, real secrets, or Keycloak exports (PRD §11). The root `.gitignore`
-    already ignores `.env` and `target/`.
+    `keycloak-admin-client` 26.0.12, which are written explicitly. Two host tools are
+    prerequisites outside D-05, named in the README: a JDK 21 for host builds, and Node 22 for
+    `scripts/token-claims.mjs`.
+*   **Coordinates.** groupId `org.cce`, artifactId `cce-admin-service`, version `0.1.0-SNAPSHOT`.
+    The stand-in is `org.cce:cce-gateway-stub:0.1.0-SNAPSHOT`, package `org.cce.gatewaystub`.
+*   **Spring tests never read `.env`.** Every Spring test runs with `@ActiveProfiles("test")`, and
+    the `.env` import is active only outside that profile. Only the Phase 8 E2E tests read
+    `.env`, through `E2eEnvironment`.
+*   **Transactions.** The flow services (`UserService`, `RoleService`, `RolePermissionService`,
+    `RoleMenuService`, `MenuService`, `GatewaySyncService`, `AccountLinker`) carry no class- or
+    method-level `@Transactional`. Each database step of section 5 runs in its own
+    `TransactionTemplate` and commits before the next Keycloak or gateway call. Services always
+    continue with the entity instance that `save` returns.
+*   **Never commit** `.env`, real secrets, or Keycloak exports (PRD §11). The repository's root
+    `.gitignore` already ignores `.env` and `target/`.
 
 ### Phase 1: Local environment (M0) and project skeleton
 
 **Closes:** M0, and B-13 for the local environment.
 
-| File | Action | What and why |
+| File | Action | Contents |
 |---|---|---|
-| `.mvn/wrapper/maven-wrapper.properties`, `mvnw`, `mvnw.cmd` | Create | Generated with `mvn -N org.apache.maven.plugins:maven-wrapper-plugin:3.3.4:wrapper -Dmaven=3.9.16 -Dtype=only-script`. The wrapper pins Maven 3.9.16 (D-05). The machine's Maven 3.8.7 is used only for this one command. |
-| `pom.xml` | Create | Parent `spring-boot-starter-parent` 3.5.16, `java.version` 21. **Dependencies:** `spring-boot-starter-web`, `-validation`, `-data-jpa`, `-oauth2-resource-server`; `flyway-core`; `flyway-database-postgresql`; `postgresql` (runtime); `springdoc-openapi-starter-webmvc-ui` 2.10.0; `keycloak-admin-client` 26.0.12. **Test:** `spring-boot-starter-test`, `spring-security-test`, `spring-boot-testcontainers`, `org.testcontainers:postgresql`, `org.testcontainers:junit-jupiter`. **Build:** `spring-boot-maven-plugin`, and Surefire excluding `**/*E2E.java`. |
-| `{main}/CceAdminServiceApplication.java` | Create | `@SpringBootApplication` entry point. |
-| `src/main/resources/application.yml` | Create | Two documents. The first: `spring.application.name`, `server.port: ${SERVER_PORT:8085}`. The second, with `spring.config.activate.on-profile: "!test"`: `spring.config.import: optional:file:.env[.properties]` (section 9.3). Later phases extend the first document. |
-| `.env.example` | Create | Every variable in section 9.3, with placeholder values such as `change-me`. |
-| `docker-compose.yml` | Create | `postgres`, `keycloak` and `mailpit`, exactly as in section 9.1, with their health checks. `gateway-stub` is added in phase 4, and `admin-service` in phase 7. |
+| `.mvn/wrapper/maven-wrapper.properties`, `mvnw`, `mvnw.cmd` | Create | Generated with `mvn -N org.apache.maven.plugins:maven-wrapper-plugin:3.3.4:wrapper -Dmaven=3.9.16 -Dtype=only-script`. Run this once with any installed Maven 3.x. Every later command uses `./mvnw`, which pins Maven 3.9.16 (D-05). |
+| `pom.xml` | Create | Parent `spring-boot-starter-parent` 3.5.16, `java.version` 21. **Dependencies:** `spring-boot-starter-web`, `-validation`, `-data-jpa`, `-oauth2-resource-server`; `flyway-core`; `flyway-database-postgresql`; `postgresql` (runtime); `springdoc-openapi-starter-webmvc-ui` 2.10.0; `keycloak-admin-client` 26.0.12. **Test:** `spring-boot-starter-test`, `spring-security-test`, `spring-boot-testcontainers`, `org.testcontainers:postgresql`. **Build:** `spring-boot-maven-plugin`. Surefire's default includes never match `*E2E.java`, so no exclusion is needed. |
+| `{main}/CceAdminServiceApplication.java` | Create | `@SpringBootApplication` and `@ConfigurationPropertiesScan`. |
+| `src/main/resources/application.yml` | Create | Two documents. The first: `spring.application.name: cce-admin-service`, `server.port: ${SERVER_PORT:8085}`. The second, with `spring.config.activate.on-profile: "!test"`: `spring.config.import: optional:file:.env[.properties]` (section 9.3). Later phases extend the first document. |
+| `.env.example` | Create | Every variable in section 9.3. Secrets and the test administrator's details are `change-me`. The host-run values and `BOOTSTRAP_ADMIN_USERNAME` are written exactly as in 9.3. |
+| `docker-compose.yml` | Create | `postgres`, `keycloak` and `mailpit`, exactly as in section 9.1, with their health checks. `gateway-stub` is added in Phase 4, and `admin-service` in Phase 7. |
 | `docker/postgres/init/01-create-keycloak-db.sql` | Create | `CREATE DATABASE keycloak OWNER admin_service;`, mounted into `/docker-entrypoint-initdb.d`. |
 | `keycloak/realm-cce.json` | Create | The realm in section 9.2. Secrets and the test administrator's details are `${…}` placeholders only. No `clientScopes` key. |
-| `scripts/token-claims.mjs` | Create | A Node 22 script with no dependencies. It reads `.env` (`KEY=VALUE`, resolving `${…}` from earlier keys). `node scripts/token-claims.mjs admin` gets a password-grant token from `cce-e2e` for the test administrator; `node scripts/token-claims.mjs service` gets a client-credentials token for `cce-admin-service`. It prints the token's `iss`, `aud`, `realm_access.roles` and `auth_time`, or with `--token` only the raw token. Used by the exit checks. |
-| `README.md` | Create | Local setup: prerequisites, copy `.env.example`, `docker compose up -d --wait`, the URLs in section 9.3, the reset command, and the token script. |
+| `scripts/token-claims.mjs` | Create | A Node 22 script with no dependencies. It reads `.env` (`KEY=VALUE`, resolving `${…}` from earlier keys) for `CCE_TEST_ADMIN_USERNAME`, `CCE_TEST_ADMIN_PASSWORD` and `KEYCLOAK_ADMIN_CLIENT_SECRET`, and uses the token endpoint `http://localhost:8180/auth/realms/cce/protocol/openid-connect/token`. `node scripts/token-claims.mjs admin` gets a password-grant token from `cce-e2e` for the test administrator; `node scripts/token-claims.mjs service` gets a client-credentials token for `cce-admin-service`. It prints the token's `iss`, `aud`, `realm_access.roles` and `auth_time`, or with `--token` only the raw token. |
+| `README.md` | Create | Prerequisites (Docker with compose, a JDK 21, Node 22), copying `.env.example`, `docker compose up -d --wait`, the URLs in section 9.3, the reset command, and the token script. |
 
 **Exit check:**
-1.  `cp .env.example .env`, then set every placeholder to a non-empty local value.
+1.  `cp .env.example .env`, then replace every `change-me` with a local value.
 2.  `docker compose up -d --wait` reports `postgres`, `keycloak` and `mailpit` healthy.
 3.  `node scripts/token-claims.mjs admin` prints `iss` = `http://localhost:8180/auth/realms/cce`,
     an `aud` containing `gateway-service`, roles containing `SUPER_ADMIN`, and an `auth_time`.
@@ -1652,36 +1700,73 @@ the decision it lost to and gives its trade-off in one line.
 5.  The M0 demo: sign in to `http://localhost:8180/auth/realms/cce/account` as the test
     administrator.
 6.  `./mvnw verify` passes.
-7.  `git status --porcelain` lists no `.env`, and `git grep` finds none of the secret values from
-    `.env`.
+7.  `git status --porcelain` lists no `.env`, and after `set -a; . ./.env; set +a`,
+    `git grep -F -e "$POSTGRES_PASSWORD" -e "$KEYCLOAK_ADMIN_PASSWORD" -e "$KEYCLOAK_ADMIN_CLIENT_SECRET" -e "$GATEWAY_STUB_CLIENT_SECRET" -e "$CCE_TEST_ADMIN_PASSWORD"`
+    finds nothing.
 
 ### Phase 2: Schema, seed and persistence
 
 **Closes:** B-01, B-02.
 
-| File | Action | What and why |
+| File | Action | Contents |
 |---|---|---|
-| `src/main/resources/db/migration/V1__schema.sql` | Create | Section 6: `pgcrypto`, the six owned tables with their constraints, indexes and the append-only trigger, and the `DO` block that creates `api_permissions` with its constraint, indexes, function and trigger only when the table is absent. |
-| `src/main/resources/db/migration/V2__verify_api_permissions.sql` | Create | The shape check in section 6. It raises an exception on any mismatch, before any seed row is written. |
-| `src/main/resources/db/migration/V3__seed.sql` | Create | The 12 menus with fixed UUIDs, the two system roles with explicit `is_assignable`, and the six `api_permissions` rows with `ON CONFLICT (permission_name, http_method, uri_pattern) DO NOTHING`. |
-| `src/main/resources/application.yml` | Modify | Datasource from `DATABASE_URL`, `DATABASE_USERNAME` and `DATABASE_PASSWORD`. `spring.datasource.hikari.connection-timeout: 2000`. `spring.flyway.baseline-on-migrate: true`, `baseline-version: 0`, `table: admin_service_flyway_history`. `spring.jpa.hibernate.ddl-auto: validate`. `spring.jpa.open-in-view: false`. |
-| `src/test/resources/application-test.yml` | Create | The `test` profile. Phase 3 adds fixed values for every required `admin.*` property. |
-| `{main}/entity/UserEntity.java`, `RoleEntity.java`, `MenuEntity.java`, `RoleMenuEntity.java`, `UserRoleEntity.java`, `ApiPermissionEntity.java`, `AuditLogEntity.java` | Create | One JPA entity per table, with the columns in section 6. On the owned tables, `@PrePersist` sets the id (when null), `created_at` and `updated_at`, and `@PreUpdate` sets `updated_at`. `ApiPermissionEntity` maps its `TIMESTAMP` columns as `LocalDateTime` with `insertable = false, updatable = false`. `AuditLogEntity`'s JSON columns use `@JdbcTypeCode(SqlTypes.JSON)` with `JsonNode`. |
-| `{main}/entity/UserStatus.java`, `MenuType.java`, `SyncStatus.java`, `AuditOutcome.java`, `AuditEntityType.java` | Create | The enums behind the CHECK constraints, stored as strings. `AuditOutcome` is `SUCCESS` or `FAILED`. |
-| `{main}/repository/UserRepository.java` | Create | `findByKeycloakId`; `findByIdForUpdate` (`@Lock(PESSIMISTIC_WRITE)`); `existsByUsername`; `existsByEmailIgnoreCase`; `JpaSpecificationExecutor` for search; `updateLastLoginIfLater(userId, authTime)`, a native conditional `UPDATE` with `@Modifying` and `@Transactional`; `countActiveUsersWithRoleExcluding(roleName, userId)`. |
-| `{main}/repository/RoleRepository.java` | Create | `findByName`, `existsByName`, and `findByNameForUpdate` (`@Lock(PESSIMISTIC_WRITE)`). |
-| `{main}/repository/MenuRepository.java`, `RoleMenuRepository.java`, `UserRoleRepository.java`, `ApiPermissionRepository.java`, `AuditLogRepository.java` | Create | The queries sections 3 and 5 need. Every replace delete is a JPQL `@Modifying(flushAutomatically = true, clearAutomatically = true)` bulk delete. `ApiPermissionRepository` has `findByPermissionNameInAndHttpMethod(names, method)` for step 5, `deleteExplicitRows(name, implicitPairs)`, which deletes all of a role's rows except the implicit ones, `deleteByPermissionName` and `existsByPermissionName`. |
-| `{test}/support/DatabaseTestBase.java` | Create | `@Testcontainers` and `@ActiveProfiles("test")`, with a static `@Container @ServiceConnection` `PostgreSQLContainer` on `postgres:16.15-alpine`, shared by every database test. |
-| `{test}/support/FreshDatabase.java` | Create | Creates a uniquely named database in the shared container and runs Flyway on it through the Flyway API, with the same settings as `application.yml` and no Spring context. Used by the migration tests. |
+| `src/main/resources/db/migration/V1__schema.sql` | Create | Section 6: `pgcrypto`, the six owned tables with their constraints, indexes and the append-only trigger, and the block that creates `api_permissions` with its constraint, indexes, function and trigger only when the table is absent. The outer block is quoted `$do$`, and the function body inside it `$fn$`. |
+| `src/main/resources/db/migration/V2__verify_api_permissions.sql` | Create | The shape check in section 6, before any seed row is written. |
+| `src/main/resources/db/migration/V3__seed.sql` | Create | The 12 menus and the two system roles with the fixed ids of section 6 and explicit `is_assignable`, and the six `api_permissions` rows with `ON CONFLICT (permission_name, http_method, uri_pattern) DO NOTHING`. |
+| `src/main/resources/application.yml` | Modify | `spring.datasource.url: ${DATABASE_URL:}`, `username: ${DATABASE_USERNAME:}`, `password: ${DATABASE_PASSWORD:}`, `hikari.connection-timeout: 2000`. `spring.flyway.baseline-on-migrate: true`, `baseline-version: 0`, `table: admin_service_flyway_history`. `spring.jpa.hibernate.ddl-auto: validate`. `spring.jpa.open-in-view: false`. |
+| `src/test/resources/application-test.yml` | Create | The `test` profile. In this phase it holds only `spring.jpa.show-sql: false`; the datasource comes from `@ServiceConnection`. Phase 3 adds the `admin.*` values. |
+| `{main}/entity/UserEntity.java`, `RoleEntity.java`, `MenuEntity.java` | Create | One entity per table, with the columns in section 6 (`MenuEntity.active` maps `is_active`). `@PrePersist` sets the id when it is null, and `createdAt` and `updatedAt`. `@PreUpdate` sets `updatedAt`. |
+| `{main}/entity/RoleMenuEntity.java`, `UserRoleEntity.java` | Create | Foreign keys mapped as plain `UUID` columns (`roleId`, `menuId`, `userId`), not `@ManyToOne`. `@PrePersist` sets the id when it is null, and `createdAt`. |
+| `{main}/entity/AuditLogEntity.java` | Create | `@PrePersist` sets the id and `occurredAt` in Java. JSON columns use `@JdbcTypeCode(SqlTypes.JSON)` with `JsonNode`. |
+| `{main}/entity/ApiPermissionEntity.java` | Create | `@Id @GeneratedValue(strategy = GenerationType.IDENTITY) Long id`. The `TIMESTAMP` columns map as `LocalDateTime` with `insertable = false, updatable = false`, so the database defaults and trigger apply. |
+| `{main}/entity/UserStatus.java`, `MenuType.java`, `SyncStatus.java`, `AuditOutcome.java`, `AuditEntityType.java` | Create | The enums behind the CHECK constraints, stored with `@Enumerated(EnumType.STRING)`. `AuditOutcome` is `SUCCESS` or `FAILED`. |
+| `{main}/repository/*.java` | Create | The seven repositories, with exactly the methods in the table below. |
+| `{test}/support/DatabaseTestBase.java` | Create | `@SpringBootTest` and `@ActiveProfiles("test")`. A static `PostgreSQLContainer` field on `postgres:16.15-alpine` with `@ServiceConnection`, started once in a `static {}` block (the singleton-container pattern; no `@Testcontainers` or `@Container`), so every test class shares one container and one Spring context. A `@BeforeEach` reset, in order: `TRUNCATE audit_log, user_roles, role_menus, users`; `DELETE FROM api_permissions WHERE permission_name NOT IN ('SUPER_ADMIN', 'CCE_ADMIN_SERVICE')`; `DELETE FROM roles WHERE is_system = false`; `UPDATE roles SET sync_status = 'NEVER', last_sync_at = NULL`; `DELETE FROM menus WHERE parent_id IS NOT NULL AND id::text NOT LIKE '10000000-0000-4000-8000-%'`; `DELETE FROM menus WHERE id::text NOT LIKE '10000000-0000-4000-8000-%'`. Tests never change seed rows; they create their own. Row triggers do not fire on `TRUNCATE`, so the append-only trigger allows the reset. |
+| `{test}/support/FreshDatabase.java` | Create | Uses the same container. Creates a uniquely named database, `runSql(Resource)` sends a whole file in one JDBC `Statement.execute` (so `$$` bodies are not split), and `migrate()` runs Flyway through its API with the settings of `application.yml`. No Spring context. |
 | `src/test/resources/gateway/gateway-api-permissions.sql` | Create | The fixture below. |
 | `src/test/resources/gateway/mismatched-api-permissions.sql` | Create | The same table with `uri_pattern VARCHAR(200)`. |
-| `{test}/migration/MigrationEmptyDatabaseTest.java` | Create | On a fresh database: every table, column, index, constraint and trigger in section 6, the 12 menus, the two roles and the six permission rows (B-01, B-02). `roles.is_assignable` has no default (AD-14). The history table is `admin_service_flyway_history`. |
-| `{test}/migration/MigrationExistingGatewayTableTest.java` | Create | Runs the fixture first, then Flyway. Migration succeeds, the table's definition is unchanged, the two sample rows remain, and the seed rows are added (AD-02). |
-| `{test}/migration/MigrationShapeMismatchTest.java` | Create | Runs the mismatched fixture, then Flyway. V2 fails, and no seed row exists. |
-| `{test}/repository/RepositoryQueriesTest.java` | Create | The custom queries, including that `updateLastLoginIfLater` only moves forward and leaves `updated_at` alone, that `deleteExplicitRows` keeps the implicit rows, and that `UPDATE` and `DELETE` on `audit_log` fail. |
+| `{test}/migration/MigrationEmptyDatabaseTest.java` | Create | With `FreshDatabase`: every table, column, index, constraint and trigger in section 6, the 12 menus and two roles with their fixed ids, and the six permission rows (B-01, B-02). `roles.is_assignable` has no default (AD-14). The history table is `admin_service_flyway_history`. |
+| `{test}/migration/MigrationExistingGatewayTableTest.java` | Create | `runSql` the fixture, then `migrate()`. Migration succeeds, the table's definition is unchanged, the five fixture rows remain unchanged, and the six seed rows are added (AD-02). |
+| `{test}/migration/MigrationShapeMismatchTest.java` | Create | `runSql` the mismatched fixture, then `migrate()`. V2 fails, and no seed row exists. |
+| `{test}/repository/RepositoryQueriesTest.java` | Create | Extends `DatabaseTestBase`. Every custom query in the table below, including that `updateLastLoginIfLater` only moves forward and leaves `updated_at` alone, that `deleteExplicitRows` keeps the implicit rows, that `updateSyncResult` leaves `updated_at` alone, and that `UPDATE` and `DELETE` on `audit_log` fail. |
 
-The gateway fixture, `gateway-api-permissions.sql`, is this design's reconstruction (section 6,
-GW-5):
+**Repository methods.** Every bulk delete used by a replace operation (flows 5.4, 5.7 and 5.11)
+carries `@Modifying(flushAutomatically = true, clearAutomatically = true)`. Every other
+`@Modifying` query carries `@Modifying` alone.
+
+| Repository | Method | Query |
+|---|---|---|
+| `UserRepository` (also `JpaSpecificationExecutor<UserEntity>`) | `Optional<UserEntity> findByKeycloakId(UUID keycloakId)` | derived |
+| | `@Lock(PESSIMISTIC_WRITE) Optional<UserEntity> lockById(UUID id)` | `select u from UserEntity u where u.id = :id` |
+| | `boolean existsByUsername(String username)` | derived |
+| | `boolean existsByEmail(String email)`, `boolean existsByEmailAndIdNot(String email, UUID id)` | derived; called with `email.toLowerCase(Locale.ROOT)`, so `ux_users_email_lower` matches stored lower-case values |
+| | `long countUsersWithRole(String roleName, UserStatus status)` | `select count(u) from UserEntity u, UserRoleEntity ur, RoleEntity r where ur.userId = u.id and ur.roleId = r.id and r.name = :roleName and u.status = :status` |
+| | `long countUsersWithRoleExcluding(String roleName, UserStatus status, UUID excludedUserId)` | the same, `and u.id <> :excludedUserId` |
+| | `@Modifying @Transactional int updateLastLoginIfLater(UUID id, Instant t)` | native: `UPDATE users SET last_login_at = :t WHERE id = :id AND (last_login_at IS NULL OR last_login_at < :t)` |
+| | `@Modifying int touchUpdatedAt(UUID id, Instant at)` | `update UserEntity u set u.updatedAt = :at where u.id = :id` |
+| `RoleRepository` | `Optional<RoleEntity> findByName(String name)`, `boolean existsByName(String name)`, `List<RoleEntity> findByNameIn(Collection<String> names)` | derived |
+| | `Page<RoleEntity> findAll(Pageable pageable)` | inherited, called with `Sort.by("name", "id")` |
+| | `@Lock(PESSIMISTIC_WRITE) Optional<RoleEntity> lockByName(String name)` | `select r from RoleEntity r where r.name = :name` |
+| | `@Modifying int updateSyncResult(UUID id, SyncStatus status, Instant at)` | `update RoleEntity r set r.syncStatus = :status, r.lastSyncAt = :at where r.id = :id` (skips `@PreUpdate`, so `updated_at` is unchanged) |
+| `MenuRepository` | `List<MenuEntity> findAll(Sort sort)` | inherited, called with `Sort.by("sortOrder", "label")` |
+| | `boolean existsByKey(String key)`, `boolean existsByParentId(UUID parentId)` | derived |
+| | `List<MenuEntity> findActiveGrantedToRoleNames(Collection<String> roleNames)` | `select distinct m from MenuEntity m, RoleMenuEntity rm, RoleEntity r where rm.menuId = m.id and rm.roleId = r.id and r.name in :roleNames and m.active = true` |
+| `RoleMenuRepository` | `List<RoleMenuEntity> findByRoleId(UUID roleId)` | derived |
+| | `List<UUID> findRoleIdsByMenuId(UUID menuId)` | `select rm.roleId from RoleMenuEntity rm where rm.menuId = :menuId` |
+| | `int deleteByRoleId(UUID roleId)`, `int deleteByMenuId(UUID menuId)` | `delete from RoleMenuEntity rm where rm.roleId = :roleId` (and `rm.menuId = :menuId`) |
+| `UserRoleRepository` | `List<UserRoleEntity> findByUserId(UUID userId)`, `boolean existsByRoleId(UUID roleId)` | derived |
+| | `List<Object[]> countByRoleIds(Collection<UUID> roleIds)` | `select ur.roleId, count(ur) from UserRoleEntity ur where ur.roleId in :roleIds group by ur.roleId` (for `Role.userCount`, one query per page) |
+| | `int deleteByUserIdAndRoleIdIn(UUID userId, Collection<UUID> roleIds)` | `delete from UserRoleEntity ur where ur.userId = :userId and ur.roleId in :roleIds` |
+| `ApiPermissionRepository` | `List<ApiPermissionEntity> findByPermissionNameInAndHttpMethod(Collection<String> names, String method)` | derived (section 3, step 5) |
+| | `List<ApiPermissionEntity> findByPermissionNameOrderByUriPatternAscHttpMethodAsc(String name)` | derived (a role's rows) |
+| | `boolean existsByPermissionName(String name)` | derived |
+| | `int deleteExplicitRows(String name, Collection<String> implicitUris)` | `delete from ApiPermissionEntity p where p.permissionName = :name and not (p.httpMethod = 'GET' and p.uriPattern in :implicitUris)`, called with the two implicit URIs |
+| | `int deleteByPermissionName(String name)` | `delete from ApiPermissionEntity p where p.permissionName = :name` |
+| `AuditLogRepository` | `List<AuditLogEntity> findByEntityTypeAndEntityIdOrderByOccurredAtAsc(AuditEntityType type, UUID id)` | derived |
+
+**The gateway fixture**, `gateway-api-permissions.sql`. The columns, the constraint and the five
+sample rows are quoted from the gateway doc. Only the two indexes and the trigger are this
+design's reconstruction (section 6, GW-5):
 
 ```sql
 CREATE TABLE api_permissions (
@@ -1717,44 +1802,78 @@ INSERT INTO api_permissions (permission_name, http_method, uri_pattern, descript
 
 ### Phase 3: Web foundation, security, audit writer, `/health` and `/me`
 
-**Closes:** B-03, B-04, B-05, B-10, B-11, B-12, B-13, B-20, and B-06 for the endpoints built so
-far.
+**Closes:** B-05, B-10, B-11, B-12, B-13, B-20. Also B-03 and B-04 for the envelope, the error
+mapping and `PageParams`, completed in Phases 5 and 6, and B-06 for the endpoints built so far.
 
-| File | Action | What and why |
+| File | Action | Contents |
 |---|---|---|
-| `src/main/resources/application.yml` | Modify | Every variable in section 9.4, bound to `admin.*`. `server.forward-headers-strategy: native` and `server.tomcat.remoteip.internal-proxies: ${TRUSTED_PROXIES:(?!)}`, where `(?!)` matches no address (AD-19). Springdoc paths `/admin/v1/api-docs` and `/admin/v1/swagger-ui`, switched by `SPRINGDOC_ENABLED`. |
-| `src/test/resources/application-test.yml` | Modify | Fixed test values for every required `admin.*` property. The test JWT settings point at the test key of `TestJwtFactory`. |
-| `{main}/config/AdminProperties.java` | Create | A `@ConfigurationProperties("admin")` record with nested `jwt`, `keycloak`, `gateway`, `permission` and `bootstrap` groups, validated at startup. A missing required value stops startup (B-13). |
-| `{main}/config/JacksonConfig.java`, `{main}/config/TrimmingStringDeserializer.java` | Create | `FAIL_ON_UNKNOWN_PROPERTIES`, ISO-8601 instants, and a `String` deserializer that trims every request string and turns an empty one into null (section 4.1). |
+| `src/main/resources/application.yml` | Modify | The `admin:` block below. Also: `server.forward-headers-strategy: native`; `server.tomcat.remoteip.internal-proxies: ${TRUSTED_PROXIES:(?!)}`, where `(?!)` matches no address (AD-19); `springdoc.api-docs.path: /admin/v1/api-docs`, `springdoc.swagger-ui.path: /admin/v1/swagger-ui`, and both `springdoc.api-docs.enabled` and `springdoc.swagger-ui.enabled` set to `${SPRINGDOC_ENABLED:true}`; `spring.jackson.deserialization.fail-on-unknown-properties: true`. |
+| `src/test/resources/application-test.yml` | Modify | Fixed values for every `admin.*` property. The test issuer and audience equal the values `TestJwtFactory` signs with (`https://test-issuer.local/realms/cce` and `gateway-service`). The decoder itself comes from `TestSecurityConfig`. |
+| `{main}/config/AdminProperties.java` | Create | A `@ConfigurationProperties("admin")` record with `@Validated`, registered by `@ConfigurationPropertiesScan`. Every value that 9.4 lists as required carries `@NotBlank(message = "set <VARIABLE>")`, naming its environment variable. Because every required value is written `${VAR:}`, a missing variable binds as an empty string and fails validation at startup (B-13). |
+| `{main}/config/JacksonConfig.java`, `{main}/config/TrimmingStringDeserializer.java` | Create | A `Jackson2ObjectMapperBuilderCustomizer` that registers the deserializer, which trims every request string and turns an empty one into null (section 4.1). Boot's own mapper is kept. |
 | `{main}/config/OpenApiConfig.java` | Create | The OpenAPI title and version, and the bearer security scheme (B-06). |
-| `{main}/security/SecurityConfig.java` | Create | The filter chain in section 3: stateless, CSRF off, the public paths, the resource server with a `JwtDecoder` built from `JWT_JWK_SET_URI`, and the validators. It creates `CurrentUserFilter` and `PermissionCheckFilter` itself, adds them after the bearer filter, and exposes the validator list for tests. Neither filter is a `@Component`, so neither is registered twice. |
-| `{main}/security/AudienceValidator.java` | Create | Rejects a token whose `aud` does not contain `JWT_AUDIENCE` (B-10). |
+| `{main}/security/SecurityConfig.java` | Create | The chain in section 3: stateless, CSRF off, the public paths and `DispatcherType.ERROR` permitted, and the resource server with `.jwt(Customizer.withDefaults())`, which takes the `JwtDecoder` bean from the context. The `jwtDecoder` bean is built from `JWT_JWK_SET_URI`, with validators for issuer and timestamps (30 s skew) and a `JwtClaimValidator<List<String>>("aud", a -> a != null && a.contains(audience))`. `CurrentUserFilter` and `PermissionCheckFilter` are created here, not as `@Component`s, and added after `BearerTokenAuthenticationFilter`. |
 | `{main}/security/RolesClaimReader.java` | Create | Reads role names along the dotted `JWT_ROLES_CLAIM_PATH` (B-11). |
-| `{main}/security/CurrentUser.java`, `CurrentUserFilter.java` | Create | Step 4. Skips the public paths. |
-| `{main}/security/PermissionCheckFilter.java` | Create | Step 5, with `AntPathMatcher` and `findByPermissionNameInAndHttpMethod`. Skips the public paths. Logs the switch at startup (AD-17). |
-| `{main}/security/SecurityErrorWriter.java` | Create | Writes the 401 and 403 error envelopes from inside the filter chain (the authentication entry point and the access-denied handler). |
-| `{main}/audit/ActorProvider.java` | Create | The actor for audit rows: the request's `CurrentUser`, or `system:bootstrap` when there is no request. Tests replace it with `TestActor`. |
-| `{main}/audit/AuditAction.java`, `AuditEntry.java`, `AuditWriter.java` | Create | The actions in section 8, an entry record, `record` and `recordInNewTransaction`. The IP address is `request.getRemoteAddr()`. |
-| `{main}/service/exception/ErrorCode.java` | Create | Every code in section 4.2, with its HTTP status. |
-| `{main}/service/exception/ApiException.java`, `PartialState.java`, `KeycloakSyncFailedException.java` | Create | The base exception (code, message, optional `details`), the `PartialState` record, and the 502 exception that carries it. |
-| `{main}/controller/ApiExceptionHandler.java` | Create | `@RestControllerAdvice`. Maps `ApiException`; `MethodArgumentNotValidException`, `HandlerMethodValidationException`, `HttpMessageNotReadableException` (including unknown properties), `MethodArgumentTypeMismatchException` and `HttpMediaTypeNotSupportedException` to 400 `VALIDATION_ERROR`; `NoResourceFoundException` to 404 `NOT_FOUND`; `HttpRequestMethodNotSupportedException` to 405 `METHOD_NOT_ALLOWED`; anything else to 500 `INTERNAL_ERROR`. |
+| `{main}/security/CurrentUser.java`, `CurrentUserFilter.java` | Create | Section 3, step 4 (local user), under the filter rules of section 3: passes through unless the authentication is a `JwtAuthenticationToken`; catches unexpected exceptions and writes 500 `INTERNAL_ERROR`. |
+| `{main}/security/PermissionCheckFilter.java` | Create | Section 3, step 5 (permission check), with `AntPathMatcher` and `findByPermissionNameInAndHttpMethod`, under the same filter rules, and 403 without a query when the role list is empty. Logs the value of `PERMISSION_CHECK_ENABLED` at startup, and a warning when it is `false`. |
+| `{main}/security/SecurityErrorWriter.java` | Create | Writes the 401, 403 and 500 error envelopes from inside the filter chain. For 401 it first calls `BearerTokenAuthenticationEntryPoint` to set the `WWW-Authenticate` header, then writes the body. |
+| `{main}/audit/ActorProvider.java` | Create | The actor for audit rows: the request's `CurrentUser`, or `system:bootstrap` when there is no request. Service tests that call services directly therefore record `system:bootstrap`. Tests that check the actor go through MockMvc or HTTP. |
+| `{main}/audit/AuditAction.java`, `AuditEntry.java`, `AuditWriter.java` | Create | The actions in section 8, an entry record, `record` (`Propagation.MANDATORY`) and `recordInNewTransaction` (`Propagation.REQUIRES_NEW`). The IP address is `request.getRemoteAddr()`. |
+| `{main}/service/exception/ErrorCode.java`, `ApiException.java`, `PartialState.java`, `KeycloakSyncFailedException.java` | Create | Every code in section 4.2 with its HTTP status; the base exception (code, message, optional `details`); the `PartialState` record; the 502 exception that carries it. |
+| `{main}/controller/ApiExceptionHandler.java` | Create | `@RestControllerAdvice`. Maps `ApiException`; `MethodArgumentNotValidException`, `HandlerMethodValidationException`, `HttpMessageNotReadableException` (including unknown properties), `MethodArgumentTypeMismatchException` and `HttpMediaTypeNotSupportedException` to 400 `VALIDATION_ERROR`; `NoResourceFoundException` to 404 `NOT_FOUND`; `HttpRequestMethodNotSupportedException` to 405 `METHOD_NOT_ALLOWED`; anything else to 500 `INTERNAL_ERROR`. Its `KeycloakSyncFailedException` branch logs one `ERROR` line: `event=keycloak_sync_failed operation=<op> entityId=<id> failedStep=<step> completedSteps=<a,b> keycloakUserId=<id or none> auditLogId=<id or none>`. An `@InitBinder` registers `StringTrimmerEditor(true)`, so query parameters are trimmed too. |
 | `{main}/controller/PageParams.java` | Create | Validates `page` and `pageSize` (section 4.3). |
-| `{main}/controller/dto/CommonDtos.java` | Create | Nested records `ApiResponse<T>`, `Pagination`, `Warning`, `ErrorBody`, `FieldErrorDto` and `PartialStateDto`. Only `pagination`, `warnings`, `details` and `partialState` carry `@JsonInclude(NON_NULL)`. |
+| `{main}/controller/dto/CommonDtos.java` | Create | Nested records `ApiResponse<T>`, `Pagination`, `Warning`, `ErrorBody`, `FieldErrorDto` and `PartialStateDto`. Only `pagination`, `warnings`, `details`, `partialState`, and `Warning`'s `menuId` and `parentMenuId`, carry `@JsonInclude(NON_NULL)` (section 4.1). |
 | `{main}/controller/dto/MeDtos.java` | Create | Nested records `Me` and `MenuTreeItem` (section 4.4). |
-| `{main}/controller/HealthController.java` | Create | `GET /admin/v1/health` (B-05), `SELECT 1` with a 2-second query timeout. |
-| `{main}/controller/MeController.java`, `{main}/service/CurrentUserService.java` | Create | `GET /admin/v1/me` (B-20). `/me/menus` comes in phase 7. |
+| `{main}/service/HealthService.java`, `{main}/controller/HealthController.java` | Create | `GET /admin/v1/health` (B-05). The service runs `SELECT 1` with a 2-second query timeout. The controller only shapes the response, as section 2 requires. |
+| `{main}/controller/MeController.java`, `{main}/service/CurrentUserService.java` | Create | `GET /admin/v1/me` (B-20). `/me/menus` comes in Phase 7. |
 | `Dockerfile` | Create | Multi-stage. Build on `maven:3.9.16-eclipse-temurin-21` with `mvn -B -DskipTests package`. Run on `eclipse-temurin:21.0.13_9-jre-alpine` as a non-root user, `EXPOSE 8085`, with a `HEALTHCHECK` that runs `wget -qO- http://localhost:8085/admin/v1/health`. |
 | `.dockerignore` | Create | Leaves out `target/`, `.env`, `gateway-stub/target/` and `.git`. |
-| `src/test/resources/contract/endpoints.txt` | Create | One line per endpoint, as `METHOD /admin/v1/path`, with path parameters written as `{id}`. This phase lists `GET /admin/v1/health` and `GET /admin/v1/me`. |
-| `{test}/support/TestJwtFactory.java` | Create | Signs test tokens with an RSA key generated once per test run, with any `iss`, `aud`, `exp`, `sub`, roles and `auth_time`. |
-| `{test}/support/TestSecurityConfig.java` | Create | A test `JwtDecoder` built from `TestJwtFactory`'s public key and `SecurityConfig`'s own validators, so the 401 cases run the real validation. |
-| `{test}/support/TestActor.java` | Create | A fixed actor for service tests. |
+| `src/test/resources/contract/endpoints.txt` | Create | One line per endpoint, as `METHOD /admin/v1/path`, with path parameters written `{id}`. This phase lists `GET /admin/v1/health` and `GET /admin/v1/me`. |
+| `{test}/support/DatabaseTestBase.java` | Modify | Adds `@AutoConfigureMockMvc` and `@Import(TestSecurityConfig.class)`, so web and service tests share the one context. |
+| `{test}/support/TestJwtFactory.java` | Create | Generates an RSA key pair once per test run and signs tokens with any `iss`, `aud`, `exp`, `sub`, roles and `auth_time`. |
+| `{test}/support/TestSecurityConfig.java` | Create | A `@TestConfiguration` with a `@Primary JwtDecoder` built from `TestJwtFactory`'s public key and `SecurityConfig`'s own validators, so the 401 cases run the real validation. |
+| `{test}/config/AdminPropertiesValidationTest.java` | Create | `ApplicationContextRunner` with `@EnableConfigurationProperties(AdminProperties.class)`: a missing `JWT_ISSUER`, `KEYCLOAK_REALM` or `GATEWAY_BASE_URL` fails startup with a message naming the variable. |
 | `{test}/security/RolesClaimReaderTest.java` | Create | Default path, a custom path, a missing claim, and a claim that is not a list. |
-| `{test}/security/SecurityPipelineWebTest.java` | Create | With `TestJwtFactory` tokens: 401 for missing, malformed, wrongly signed, expired, wrong-issuer and wrong-audience tokens. 403 for no local user, `INACTIVE` and `LOCKED`. 403 when no permission row matches, and 200 when one does (`/admin/v1/**`, `/admin/v1/me`). 200 when the check is off. `/health` needs no token. `last_login_at` is set from `auth_time`. Covers B-10 to B-12. |
-| `{test}/security/ClientIpWebTest.java` | Create | With no trusted proxy, `X-Forwarded-For` does not change the audited IP. With a trusted proxy, it does. |
+| `{test}/security/SecurityPipelineWebTest.java` | Create | With `TestJwtFactory` tokens: 401 (with `WWW-Authenticate`) for missing, malformed, wrongly signed, expired, wrong-issuer and wrong-audience tokens. 403 for no local user, `INACTIVE` and `LOCKED`. 403 for a token with no roles, and when no permission row matches. 200 when a row with pattern `/admin/v1/**` matches `GET /admin/v1/me`. `/health` needs no token. `last_login_at` is set from `auth_time`. Covers B-10 to B-12. |
+| `{test}/security/PermissionCheckOffWebTest.java` | Create | Its own class with `@TestPropertySource(properties = "admin.permission.check-enabled=false")`: a caller with no matching row gets 200. |
+| `{test}/security/FilterFailureWebTest.java` | Create | `@MockitoSpyBean UserRepository` throws on `findByKeycloakId`: the response is 500 with the `INTERNAL_ERROR` envelope. |
 | `{test}/controller/ApiErrorShapeWebTest.java` | Create | The envelope and null-field rules, an unknown property, malformed JSON, an unsupported content type, a bad UUID, 404 and 405 (B-03). |
+| `{test}/controller/InternalErrorWebTest.java` | Create | `@MockitoBean HealthService` throws: the response is 500 with the `INTERNAL_ERROR` envelope. |
 | `{test}/controller/OpenApiDocumentTest.java` | Create | Every line of `endpoints.txt` appears in `/admin/v1/api-docs` (B-06). |
-| `{test}/audit/AuditWriterTest.java` | Create | Actor and IP are filled in. `record` without a transaction fails. `recordInNewTransaction` survives the outer rollback. |
+| `{test}/audit/AuditWriterTest.java` | Create | `record` without a transaction fails. `recordInNewTransaction` survives the outer rollback. The actor outside a request is `system:bootstrap`. |
+
+**The `admin:` block** of `application.yml`. Variables in section 9.4 that are not listed here bind
+elsewhere: `SERVER_PORT` to `server.port`, `DATABASE_*` to `spring.datasource.*`,
+`SPRINGDOC_ENABLED` to `springdoc.*`, and `TRUSTED_PROXIES` to
+`server.tomcat.remoteip.internal-proxies`.
+
+```yaml
+admin:
+  jwt:
+    issuer: ${JWT_ISSUER:}                                   # required
+    audience: ${JWT_AUDIENCE:}                               # required
+    jwk-set-uri: ${JWT_JWK_SET_URI:${JWT_ISSUER:}/protocol/openid-connect/certs}
+    roles-claim-path: ${JWT_ROLES_CLAIM_PATH:realm_access.roles}
+  keycloak:
+    server-url: ${KEYCLOAK_SERVER_URL:}                      # required
+    realm: ${KEYCLOAK_REALM:}                                # required
+    client-id: ${KEYCLOAK_ADMIN_CLIENT_ID:cce-admin-service}
+    client-secret: ${KEYCLOAK_ADMIN_CLIENT_SECRET:}          # required
+    connect-timeout: ${KEYCLOAK_CONNECT_TIMEOUT:2s}
+    read-timeout: ${KEYCLOAK_READ_TIMEOUT:10s}
+    action-email-lifespan: ${KEYCLOAK_ACTION_EMAIL_LIFESPAN:43200}
+    action-email-client-id: ${KEYCLOAK_ACTION_EMAIL_CLIENT_ID:}
+    action-email-redirect-uri: ${KEYCLOAK_ACTION_EMAIL_REDIRECT_URI:}
+  gateway:
+    base-url: ${GATEWAY_BASE_URL:}                           # required
+    sync-path: ${GATEWAY_SYNC_PATH:/api/permissions/sync-to-keycloak}
+    connect-timeout: ${GATEWAY_CONNECT_TIMEOUT:2s}
+    read-timeout: ${GATEWAY_READ_TIMEOUT:10s}
+  permission:
+    check-enabled: ${PERMISSION_CHECK_ENABLED:true}
+  bootstrap:
+    admin-username: ${BOOTSTRAP_ADMIN_USERNAME:}
+```
 
 **Exit check:**
 1.  `./mvnw verify` passes.
@@ -1764,38 +1883,41 @@ far.
     *   `curl -i -H 'Authorization: Bearer x' localhost:8085/admin/v1/me` returns 401 with code
         `UNAUTHENTICATED` (the B1 demo);
     *   the same call with the token from `node scripts/token-claims.mjs admin --token` returns
-        403 `FORBIDDEN`, because no local user exists until phase 4 (B-12).
+        403 `FORBIDDEN`, because no local user exists until Phase 4 (B-12).
 
 ### Phase 4: Keycloak and gateway clients, account linking, bootstrap, stand-in
 
-**Closes:** AD-11, AD-13, AD-15, AD-18 (the linking method), and the sync procedure in 5.10.
+**Implements:** AD-11, AD-13, AD-15, the linking method of AD-18, and the sync procedure in 5.10.
 
-| File | Action | What and why |
+| File | Action | Contents |
 |---|---|---|
 | `{main}/client/KeycloakGateway.java`, `KeycloakUserInfo.java`, `KeycloakConflictException.java`, `KeycloakCallFailedException.java` | Create | The interface and its types in section 7. |
-| `{main}/client/KeycloakAdminClientGateway.java` | Create | Implements the interface with `keycloak-admin-client`. Maps a 404 on a lookup to empty, a 409 to `KeycloakConflictException`, and every other failure to `KeycloakCallFailedException`. |
-| `{main}/config/KeycloakClientConfig.java` | Create | The `Keycloak` bean, built with `KeycloakBuilder`, the client-credentials grant and a `ResteasyClientBuilder` with the configured `connectTimeout` and `readTimeout`. Also a `Supplier<String>` bean, `serviceAccessToken`, that returns `keycloak.tokenManager().getAccessTokenString()`. |
-| `{main}/client/GatewaySyncClient.java`, `SyncResult.java`, `HttpGatewaySyncClient.java` | Create | The sync client in section 7, using `RestClient` with the configured timeouts and the `serviceAccessToken` supplier. |
-| `{main}/config/GatewayClientConfig.java` | Create | The `RestClient` bean for the gateway. |
-| `{main}/service/GatewaySyncService.java` | Create | The procedure in 5.10, in a new transaction through `TransactionTemplate`. |
-| `{main}/service/AccountLinker.java` | Create | The linking method: 5.1 steps 5 and 6 (`KEYCLOAK_ROLES_ASSIGNED`, `LOCAL_USER_SAVED`), with the failure rows of section 8, plus the bootstrap variant that re-activates an existing row. Used by `UserService` (phase 6) and `BootstrapAdminRunner`. |
-| `{main}/service/BootstrapAdminRunner.java` | Create | An `ApplicationRunner` with `@Profile("!test")` that runs 5.13. It never throws. |
+| `{main}/client/KeycloakAdminClientGateway.java` | Create | Implements the interface with `keycloak-admin-client`. Maps a 404 on a lookup to empty, a 409 to `KeycloakConflictException`, and every other failure to `KeycloakCallFailedException`. `createUser` closes the create `Response` with `try (Response r = …)` and reads the id with `CreatedResponseUtil.getCreatedId(r)`. |
+| `{main}/config/KeycloakClientConfig.java` | Create | The `Keycloak` bean: `KeycloakBuilder` with the client-credentials grant and `.resteasyClient(...)` set to the client built exactly as in section 7 (`connectionPoolSize(10)`, the configured connect and read timeouts, and the library's `JacksonProvider`). Also a `Supplier<String>` bean, `serviceAccessToken`, returning `keycloak.tokenManager().getAccessTokenString()`. |
+| `{main}/client/GatewaySyncClient.java`, `SyncResult.java`, `HttpGatewaySyncClient.java` | Create | The sync client in section 7, using the `serviceAccessToken` supplier. |
+| `{main}/config/GatewayClientConfig.java` | Create | The `RestClient` bean for the gateway, with request factory `ClientHttpRequestFactoryBuilder.jdk().build(ClientHttpRequestFactorySettings.defaults().withConnectTimeout(connectTimeout).withReadTimeout(readTimeout))`. |
+| `{main}/service/GatewaySyncService.java` | Create | The procedure in 5.10. Step 3 runs in a new `TransactionTemplate` transaction and records the result with `RoleRepository.updateSyncResult`, never by saving the entity. |
+| `{main}/controller/dto/UserDtos.java` | Create | The `User` response record (section 4.4). Phase 6 adds the request records. |
+| `{main}/service/UserViews.java` | Create | Maps a `UserEntity` and its roles to `User`. Used for response bodies and for audit JSON. |
+| `{main}/service/AccountLinker.java` | Create | `link(KeycloakUserInfo account, UUID userId, List<RoleEntity> roles, String facilityScope, boolean linkedExisting)`: 5.1 steps 5 (`KEYCLOAK_ROLES_ASSIGNED`) and 6 (`LOCAL_USER_SAVED`, writing `USER_CREATED` with `linked`), with the failure rows of section 8. `reactivateAsAdmin(UserEntity existing, KeycloakUserInfo account)`: adds the `SUPER_ADMIN` realm role mapping with `addRealmRoles` when it is missing, sets the row `ACTIVE`, adds the `SUPER_ADMIN` `user_roles` row, and writes `USER_ROLES_UPDATED`. Both are used by `BootstrapAdminRunner`. `link` is also used by `UserService` (Phase 6). |
+| `{main}/service/BootstrapAdminRunner.java` | Create | An `ApplicationRunner` with `@Profile("!test")` that runs 5.13 through `AccountLinker`. It never throws. |
+| `{test}/support/DatabaseTestBase.java` | Modify | Adds `@MockitoBean KeycloakGateway` and `@MockitoBean GatewaySyncClient` to the base class, so every database test shares one context. |
 | `docker-compose.yml` | Modify | Adds `gateway-stub` as in section 9.1. |
-| `gateway-stub/pom.xml` | Create | Parent `spring-boot-starter-parent` 3.5.16, used only for plugin and library versions. **Dependencies:** `jackson-databind` (managed), `org.postgresql:postgresql` 42.7.14 (explicit, D-05), and JUnit Jupiter for tests (managed). **Build:** `maven-shade-plugin` builds a runnable jar with main class `org.cce.gatewaystub.GatewayStubMain`. |
-| `gateway-stub/Dockerfile` | Create | Build on `maven:3.9.16-eclipse-temurin-21` with `mvn -B -f gateway-stub/pom.xml -DskipTests package` (build context `.`). Run on `eclipse-temurin:21.0.13_9-jre-alpine` as a non-root user. |
-| `gateway-stub/README.md` | Create | States plainly that this is a stand-in, not gateway-service. Lists the GW-1 and GW-4 assumptions it implements, that it checks only for a bearer header, its variables, and the mode switch. |
-| `gateway-stub/src/main/java/org/cce/gatewaystub/GatewayStubMain.java` | Create | Starts `com.sun.net.httpserver.HttpServer` on `STUB_PORT`, with routes `POST /api/permissions/sync-to-keycloak` and `GET`/`PUT /_stub/mode`. |
+| `gateway-stub/pom.xml` | Create | `org.cce:cce-gateway-stub:0.1.0-SNAPSHOT`. Parent `spring-boot-starter-parent` 3.5.16, used only for plugin and library versions; there is no Spring dependency at runtime. **Dependencies:** `jackson-databind` (managed); `org.postgresql:postgresql` 42.7.14, an explicit override of the parent's managed version, as D-05 pins it; JUnit Jupiter for tests (managed). **Build:** the property `<start-class>org.cce.gatewaystub.GatewayStubMain</start-class>` and a `maven-shade-plugin` declaration with no configuration, which uses the parent's shade setup to build a runnable jar. |
+| `gateway-stub/Dockerfile` | Create | Build context `.`. Build on `maven:3.9.16-eclipse-temurin-21` with `mvn -B -f gateway-stub/pom.xml -DskipTests package`. Run on `eclipse-temurin:21.0.13_9-jre-alpine` as a non-root user. |
+| `gateway-stub/README.md` | Create | States that this is a stand-in, not gateway-service. Lists the GW-1 and GW-4 assumptions it implements, that it checks only for a bearer header, its variables, and the mode switch. |
+| `gateway-stub/src/main/java/org/cce/gatewaystub/GatewayStubMain.java` | Create | Starts `com.sun.net.httpserver.HttpServer` on `STUB_PORT`, with routes `POST /api/permissions/sync-to-keycloak` and `GET`/`PUT /_stub/mode`, wiring the JDBC and HTTP implementations below. |
 | `gateway-stub/src/main/java/org/cce/gatewaystub/StubConfig.java` | Create | Reads the variables in section 9.1. |
 | `gateway-stub/src/main/java/org/cce/gatewaystub/ModeHandler.java` | Create | Holds `ok` or `fail` in memory, starting at `ok`. A `PUT` with any other body gets 400. |
-| `gateway-stub/src/main/java/org/cce/gatewaystub/PermissionStore.java` | Create | JDBC: the distinct `permission_name` values of `api_permissions`. |
-| `gateway-stub/src/main/java/org/cce/gatewaystub/KeycloakRealmRoleClient.java` | Create | `java.net.http` calls to the Keycloak Admin REST API with its own client-credentials token: list realm roles with `?briefRepresentation=false`, create a role with `cce-managed=true` (and, if a `GET` shows the attribute missing, set it with `PUT`), and delete a role. |
+| `gateway-stub/src/main/java/org/cce/gatewaystub/PermissionStore.java`, `JdbcPermissionStore.java` | Create | An interface returning the distinct `permission_name` values of `api_permissions`, and its JDBC implementation. |
+| `gateway-stub/src/main/java/org/cce/gatewaystub/RealmRoles.java`, `HttpRealmRoles.java` | Create | An interface to list (with attributes), create and delete realm roles, and its `java.net.http` implementation against the Keycloak Admin REST API with the stub client's own client-credentials token. It lists with `?briefRepresentation=false`, and creates a role with `cce-managed=true`; if a following `GET` shows the attribute missing, it sets it with `PUT`. |
 | `gateway-stub/src/main/java/org/cce/gatewaystub/RealmRoleSyncPlanner.java` | Create | Pure logic: from the permission names and the existing roles, which roles to create and which to delete, under the rules in section 9.1. |
-| `gateway-stub/src/main/java/org/cce/gatewaystub/SyncHandler.java` | Create | 503 in `fail` mode. 401 without a bearer header. Otherwise applies the plan and returns 200 with a JSON summary. |
-| `gateway-stub/src/test/java/org/cce/gatewaystub/RealmRoleSyncPlannerTest.java`, `ModeHandlerTest.java`, `SyncHandlerTest.java` | Create | Every planner rule, including that built-in roles, untagged roles and `SUPER_ADMIN` are never deleted. The mode switch. 401, 503 and 200 from the sync handler, with fake store and client. |
+| `gateway-stub/src/main/java/org/cce/gatewaystub/SyncHandler.java` | Create | Checks in this order: in `fail` mode, 503; without a bearer header, 401; otherwise it applies the plan and returns 200 with a JSON summary. |
+| `gateway-stub/src/test/java/org/cce/gatewaystub/RealmRoleSyncPlannerTest.java`, `ModeHandlerTest.java`, `SyncHandlerTest.java` | Create | Every planner rule, including that built-in roles, untagged roles and `SUPER_ADMIN` are never deleted. The mode switch. 503, 401 and 200 from the sync handler, with hand-written in-memory `PermissionStore` and `RealmRoles` implementations. |
 | `{test}/client/HttpGatewaySyncClientTest.java` | Create | Against a JDK `HttpServer` fake: the bearer header, path and empty body. 2xx is success. 4xx, 5xx and a timeout are failures, with the summary cut to 500 characters. A failing token supplier is a failed sync. |
-| `{test}/service/GatewaySyncServiceTest.java` | Create | Success and failure each set only the asking role's status, leave its `updated_at` alone, and write exactly one `ROLE_SYNC_REQUESTED` row (AD-06). |
-| `{test}/service/AccountLinkerTest.java` | Create | Linking writes the mappings, the rows and `USER_CREATED` with `linked`. A failure at each step writes the failure row of section 8. |
-| `{test}/service/BootstrapAdminRunnerTest.java` | Create | Constructed directly, with a mocked `KeycloakGateway`: an administrator exists (with and without the variable, and the warning); no variable; user missing; user disabled; email unverified while verification is required; the `SUPER_ADMIN` realm role missing (error, no sync, no change); the success path (one row by `system:bootstrap`); re-activating an existing row. |
+| `{test}/service/GatewaySyncServiceTest.java` | Create | Success and failure each set only the asking role's status, leave its `updated_at` unchanged, and write exactly one `ROLE_SYNC_REQUESTED` row (AD-06). |
+| `{test}/service/AccountLinkerTest.java` | Create | `link` writes the mappings, the rows and `USER_CREATED` with `linked`. A failure at each step writes the failure row of section 8. `reactivateAsAdmin` adds a missing mapping and writes `USER_ROLES_UPDATED`. |
+| `{test}/service/BootstrapAdminRunnerTest.java` | Create | Constructed directly, with a mocked `KeycloakGateway` and a real `AccountLinker`: an administrator exists (with and without the variable, and the warning); no variable; user missing; user disabled; email unverified while verification is required; the `SUPER_ADMIN` realm role missing (error, no sync, no change); the success path (one row by `system:bootstrap`); re-activating an existing row. |
 
 **Exit check:**
 1.  `./mvnw verify` and `./mvnw -f gateway-stub/pom.xml verify` both pass.
@@ -1815,20 +1937,21 @@ far.
 
 **Closes:** B-40, B-41, B-42, B-43, B-44, and B-50 for these endpoints (milestones B2 and B4).
 
-| File | Action | What and why |
+| File | Action | Contents |
 |---|---|---|
 | `{main}/controller/dto/RoleDtos.java`, `MenuDtos.java` | Create | Role, Permission row, Menu, `RoleMenus`, `RolePermissions` and `RoleSyncResult`, and the request records, with the bean-validation rules in section 4.4. |
 | `{main}/controller/RoleController.java` | Create | The ten `/roles` endpoints in section 4.5: 201 with `Location` on create, 204 on delete. |
 | `{main}/controller/MenuController.java` | Create | The four `/menus` endpoints in section 4.5. |
-| `{main}/service/ImplicitPermissions.java` | Create | The two implicit rows of section 4.4, and the test for "is this row implicit". |
+| `{main}/service/ImplicitPermissions.java` | Create | The two implicit rows of section 4.4, their URIs for `deleteExplicitRows`, and a predicate `isImplicit(method, uriPattern)`. |
 | `{main}/service/PermissionRowRules.java` | Create | Upper-cases methods, checks them against the fixed list, checks the `uriPattern` rules (section 4.4), drops implicit duplicates, and rejects duplicates with `details`. |
-| `{main}/service/RoleService.java` | Create | List, get, create (5.6), update display fields (5.12) and delete (5.9), including the three `DUPLICATE_ROLE_NAME` checks, the system-role rule and both `ROLE_IN_USE` checks. |
-| `{main}/service/RolePermissionService.java` | Create | Get and replace permissions (5.7) and manual sync (5.8). |
+| `{main}/service/RoleService.java` | Create | List (with `countByRoleIds` for `userCount`), get, create (5.6), update display fields (5.12) and delete (5.9), including the three `DUPLICATE_ROLE_NAME` checks, the system-role rule and both `ROLE_IN_USE` checks. The create transaction commits before `GatewaySyncService` is called. |
+| `{main}/service/RolePermissionService.java` | Create | Get and replace permissions (5.7) and manual sync (5.8). The `PERMISSIONS_SAVED` transaction commits before `GatewaySyncService` is called. |
 | `{main}/service/RoleMenuService.java` | Create | Get and replace menus, with the `DETAIL_WITHOUT_PARENT` warnings (5.11). |
 | `{main}/service/MenuService.java` | Create | The tree for `GET /menus`, plus create, update and delete (5.12), with the parent rules and `MENU_HAS_CHILDREN`. |
 | `src/test/resources/contract/endpoints.txt` | Modify | Adds the 14 role and menu endpoints (ten role, four menu). |
-| `{test}/service/RoleServiceTest.java`, `RolePermissionServiceTest.java`, `RoleMenuServiceTest.java`, `MenuServiceTest.java` | Create | Spring Boot tests on `DatabaseTestBase` with `@MockitoBean` `KeycloakGateway` and `GatewaySyncClient`. For every endpoint: the happy path, each error code, no-ops, and the exact audit rows under section 8. That includes create with a failed sync (201, `ROLE_SYNC_FAILED`, two rows), the permission save on both outcomes (two rows), a manual sync (one row), delete (one row, no sync call), and the 502 `partialState` for `ROLE_PERMISSIONS_SAVE` and `ROLE_SYNC`. |
-| `{test}/controller/RoleAndMenuContractWebTest.java` | Create | JSON shapes as in section 4.4: `warnings`, the `implicit` flag, 204 bodies, and unknown properties such as `name` on `PUT /roles/:id`. |
+| `{test}/service/RoleServiceTest.java`, `RolePermissionServiceTest.java`, `RoleMenuServiceTest.java`, `MenuServiceTest.java` | Create | On `DatabaseTestBase`, with its two client mocks. For every endpoint: the happy path, each error code, no-ops, and the exact audit rows under section 8. That includes create with a failed sync (201, `ROLE_SYNC_FAILED`, two rows), the permission save on both outcomes (two rows), a manual sync (one row), delete (one row, no sync call), and the 502 `partialState` for `ROLE_PERMISSIONS_SAVE` and `ROLE_SYNC`. **Commit before sync:** the mocked `sync()` reads the role's rows in a separate `REQUIRES_NEW` transaction and finds them, for create and for replace. **502 log:** with `OutputCaptureExtension`, one failed permission save logs the `event=keycloak_sync_failed` line with its fields. |
+| `{test}/controller/RoleAndMenuContractWebTest.java` | Create | JSON shapes as in section 4.4: the warning union, the `implicit` flag, 204 bodies, and unknown properties such as `name` on `PUT /roles/:id`. |
+| `{test}/security/ClientIpDefaultWebTest.java`, `ClientIpTrustedProxyWebTest.java` | Create | `@SpringBootTest(webEnvironment = RANDOM_PORT)`, through a real HTTP client and Tomcat. Each sends `POST /admin/v1/roles` with `X-Forwarded-For: 203.0.113.7` and reads the `ROLE_CREATED` row's `ip_address`. With the default `TRUSTED_PROXIES` it is the loopback address. The second class sets `@TestPropertySource(properties = "server.tomcat.remoteip.internal-proxies=127\\.0\\.0\\.1|0:0:0:0:0:0:0:1")`, and it is `203.0.113.7`. |
 
 **Exit check:**
 1.  `./mvnw verify` passes.
@@ -1842,7 +1965,7 @@ far.
     4.  switch the stand-in to `fail` and save permissions: 502 with
         `operation: ROLE_PERMISSIONS_SAVE`;
     5.  switch back to `ok` and re-sync: 200.
-3.  `docker compose exec postgres psql -U admin_service -d admin_service -c "SELECT action, outcome FROM audit_log WHERE entity_type = 'ROLE' ORDER BY occurred_at"`
+3.  `docker compose exec postgres psql -U admin_service -d admin_service -c "SELECT action, outcome FROM audit_log WHERE entity_type = 'ROLE' AND entity_id = (SELECT id FROM roles WHERE name = 'PHASE5_ROLE') ORDER BY occurred_at"`
     shows, in this order: `ROLE_CREATED SUCCESS`, `ROLE_SYNC_REQUESTED SUCCESS`,
     `ROLE_MENUS_UPDATED SUCCESS`, `ROLE_PERMISSIONS_UPDATED SUCCESS`,
     `ROLE_SYNC_REQUESTED FAILED`, `ROLE_SYNC_REQUESTED SUCCESS`.
@@ -1852,69 +1975,83 @@ far.
 **Closes:** B-30, B-31, B-32, B-33, B-34, B-35, B-36, and B-50 for these endpoints (milestone
 B3).
 
-| File | Action | What and why |
+| File | Action | Contents |
 |---|---|---|
-| `{main}/controller/dto/UserDtos.java` | Create | User, `ResetPasswordResult` and the four request records, with the bean-validation rules in section 4.4. |
+| `{main}/controller/dto/UserDtos.java` | Modify | Adds `ResetPasswordResult` and the four request records, with the bean-validation rules in section 4.4. |
 | `{main}/controller/UserController.java` | Create | The seven `/users` endpoints in section 4.5. |
 | `{main}/service/UserSearchSpecifications.java` | Create | JPA specifications for `status`, `roleId`, `facilityScope` and `q`. |
-| `{main}/service/UserChangeLocks.java` | Create | The locks of section 5: the per-user `FOR UPDATE`, and the `SUPER_ADMIN` lock with the `LAST_SYSTEM_ADMIN` check, taken only when an administrator could be lost. |
-| `{main}/service/UserService.java` | Create | List and get, and flows 5.1 to 5.5 with their step names, through `TransactionTemplate`. 5.1 assigns the id first, decides between creating and linking, and calls `AccountLinker` for steps 5 and 6. There is no compensation. |
+| `{main}/service/UserChangeLocks.java` | Create | The locks of section 5: `UserRepository.lockById`, and `RoleRepository.lockByName("SUPER_ADMIN")` with the `LAST_SYSTEM_ADMIN` check, taken only when an administrator could be lost. |
+| `{main}/service/UserService.java` | Create | List and get, and flows 5.1 to 5.5 with their step names. 5.1 assigns the id first, decides between creating and linking, and calls `AccountLinker.link` for steps 5 and 6. In 5.4, `users.updated_at` is set with `UserRepository.touchUpdatedAt` after the `user_roles` bulk delete, not through the detached entity. There is no compensation. |
 | `src/test/resources/contract/endpoints.txt` | Modify | Adds the seven user endpoints. |
-| `{test}/service/UserCreateFlowTest.java` | Create | Every step of 5.1. The PRD's case: `@MockitoSpyBean UserRepository` throws on `save` after Keycloak succeeded, giving 502 and a `FAILED` row with the Keycloak id (B-32); resubmitting then links and completes. Linking an existing enabled account. 409 for a disabled match and for a match on one field only, with the message. `ROLE_NOT_ASSIGNABLE`, `ROLE_NOT_SYNCED`, the email warning, and the Keycloak-409 race. |
-| `{test}/service/UserProfileFlowTest.java`, `UserStatusFlowTest.java`, `UserRolesFlowTest.java`, `UserResetPasswordTest.java` | Create | Flows 5.2 to 5.5: each step, the happy path, every error code, no-ops, the exact audit rows, resubmission after a 502, and that only the added and removed realm roles are touched (B-35). |
-| `{test}/service/LastSystemAdminConcurrencyTest.java` | Create | Two administrators deactivate each other at the same time. A `CountDownLatch` inside the mocked `KeycloakGateway.setEnabled` holds the first request until the second has started. Exactly one succeeds, and the other gets `LAST_SYSTEM_ADMIN`. |
+| `{test}/service/UserCreateFlowTest.java` | Create | Every step of 5.1. The PRD's case: `@MockitoSpyBean UserRepository` throws on `save` after Keycloak succeeded, giving 502 and a `FAILED` row with the Keycloak id (B-32); resubmitting then links and completes. Linking an existing enabled account. 409 for a disabled match and for a match on one field only, with the message. `ROLE_NOT_ASSIGNABLE`, `ROLE_NOT_SYNCED`, the email warning, and the Keycloak-409 race. **502 log:** with `OutputCaptureExtension`, the 502 case logs the `event=keycloak_sync_failed` line. |
+| `{test}/service/UserProfileFlowTest.java`, `UserStatusFlowTest.java`, `UserRolesFlowTest.java`, `UserResetPasswordTest.java` | Create | Flows 5.2 to 5.5: each step, the happy path, every error code, no-ops, the exact audit rows, resubmission after a 502, and that only the added and removed realm roles are touched (B-35). `UserRolesFlowTest` also asserts that `updatedAt` changed. |
+| `{test}/service/LastSystemAdminConcurrencyTest.java` | Create | Two `ACTIVE` administrators A and B. Thread 1 deactivates A; the mocked `KeycloakGateway.setEnabled` blocks on a latch, so thread 1 holds the `SUPER_ADMIN` lock. Thread 2 deactivates B. The test thread polls `pg_stat_activity` until a backend shows `wait_event_type = 'Lock'`, then releases the latch. Each wait has a 10-second timeout. Exactly one request returns 200 and the other 409 `LAST_SYSTEM_ADMIN`. |
 | `{test}/controller/UserContractWebTest.java` | Create | Pagination, filters, search, the `Location` header, and the 201 warning shape. |
 
 **Exit check:**
 1.  `./mvnw verify` passes.
-2.  With the stack and the service running (the B3 demo):
-    *   `POST /users` creates a Keycloak user holding the realm role;
-    *   Mailpit at `http://localhost:8025` shows the set-password email;
-    *   `PATCH` to `INACTIVE` shows the user disabled in the Keycloak admin console;
-    *   `PATCH` back to `ACTIVE` enables them again.
+2.  With the stack and the service running, `TOKEN` as in Phase 5, and the role `PHASE5_ROLE`
+    from Phase 5 synced (the B3 demo):
+    *   `POST /admin/v1/users` with `{"username":"phase6-user","email":"phase6-user@cce.local","firstName":"Phase","lastName":"Six","roleIds":["<PHASE5_ROLE id>"]}`
+        returns 201, and the Keycloak admin console shows the user holding the realm role
+        `PHASE5_ROLE`;
+    *   Mailpit at `http://localhost:8025` shows the set-password email to
+        `phase6-user@cce.local`;
+    *   `PATCH /admin/v1/users/<id>/status` with `{"status":"INACTIVE"}` returns 200, and the
+        Keycloak admin console shows the user disabled;
+    *   the same call with `{"status":"ACTIVE"}` returns 200, and the user is enabled again.
 
 ### Phase 7: Role-aware menu tree, service container, contract completeness
 
-**Closes:** B-21 (milestone B5), B-06 for every endpoint, and the B-50 guard.
+**Closes:** B-21 (milestone B5), and B-06 for every endpoint. Adds
+`MutatingEndpointsAuditGuardTest`.
 
-| File | Action | What and why |
+| File | Action | Contents |
 |---|---|---|
 | `{main}/service/MenuTreeBuilder.java` | Create | The `/me/menus` rules in section 4.5. |
-| `{main}/service/CurrentUserService.java`, `{main}/controller/MeController.java` | Modify | Add `GET /admin/v1/me/menus`. |
-| `docker-compose.yml` | Modify | Adds `admin-service` under `profiles: [app]`, as in section 9.1. |
-| `README.md` | Modify | Running on the host and in a container, the configuration table (section 9.4), the bootstrap steps (section 9.5) with both operator queries, the rollout notes, the stand-in switch, and the reset. |
+| `{main}/service/CurrentUserService.java`, `{main}/controller/MeController.java` | Modify | Add `GET /admin/v1/me/menus`, using `MenuRepository.findActiveGrantedToRoleNames`. |
+| `docker-compose.yml` | Modify | Adds the `admin-service` block exactly as written in section 9.1. |
+| `README.md` | Modify | Running on the host and in a container, the configuration table (section 9.4), the bootstrap steps (section 9.5) with both operator queries, the rollout steps from the "Rollout and rollback" item of Non-Functional Requirements, the stand-in switch, and the reset. |
 | `src/test/resources/contract/endpoints.txt` | Modify | Adds `GET /admin/v1/me/menus`. The file now lists all 24 endpoints in section 4.5. |
 | `{test}/service/MenuTreeBuilderTest.java`, `CurrentUserMenusTest.java` | Create | Union across roles, inactive menus left out, a `DETAIL` only under a granted parent, ordering, and the B5 case of two overlapping roles. |
-| `{test}/audit/MutatingEndpointsAuditGuardTest.java` | Create | Reads every non-GET mapping in package `org.cce.admin.controller` from `RequestMappingHandlerMapping` and checks that each one appears in a fixed list of endpoints whose audit rows are tested. A new mutating endpoint then fails the build until it is added to that list. |
+| `{test}/audit/MutatingEndpointsAuditGuardTest.java` | Create | Injects `RequestMappingHandlerMapping` by the bean name `requestMappingHandlerMapping` and reads every non-GET mapping in package `org.cce.admin.controller`. It fails the build when one is missing from a fixed list in the test, so a new mutating endpoint forces a review. It does not verify that an audit test exists. |
 
 **Exit check:**
 1.  `./mvnw verify` passes, and `OpenApiDocumentTest` covers all 24 endpoints.
 2.  `docker compose --profile app up -d --build --wait` reports all five services healthy.
-3.  `curl localhost:8085/admin/v1/health` returns `UP`.
+3.  `curl -s localhost:8085/admin/v1/health` returns `{"status":"UP","database":"UP"}`.
+4.  `curl -s -H "Authorization: Bearer $(node scripts/token-claims.mjs admin --token)" localhost:8085/admin/v1/me`
+    returns 200 from the container, which shows that its in-network `JWT_JWK_SET_URI` works.
 
 ### Phase 8: API-level end-to-end checks (S1 to S6)
 
 **Closes:** milestone E2E, and scenarios S1 to S6 at API level.
 
-| File | Action | What and why |
+| File | Action | Contents |
 |---|---|---|
-| `pom.xml` | Modify | Adds profile `e2e`: Surefire is skipped, and Failsafe runs `**/*E2E.java`. The default build still excludes them. |
-| `{test}/e2e/E2eEnvironment.java` | Create | Reads `.env` (`KEY=VALUE`, resolving `${…}` from earlier keys), with process environment variables taking precedence. Provides the URLs in section 9.3 and the per-run suffix: 8 digits, the last 8 digits of the epoch seconds. |
-| `{test}/e2e/E2eClients.java` | Create | A `RestClient` for the service, the stand-in and Mailpit, and a `keycloak-admin-client` instance for the local master `admin` (`KEYCLOAK_ADMIN_PASSWORD`), used for test-only setup: setting a password and clearing required actions, creating a Keycloak-only account, and reading a user's `enabled` flag and realm roles. |
+| `pom.xml` | Modify | Adds profile `e2e`. In it, Surefire gets `<configuration><skipTests>true</skipTests></configuration>` (not the `skipTests` property, which would also skip Failsafe), and Failsafe runs with `<includes><include>**/*E2E.java</include></includes>` and its `integration-test` and `verify` goals. |
+| `{test}/e2e/E2eEnvironment.java` | Create | Reads `.env` (`KEY=VALUE`, resolving `${…}` from earlier keys), with process environment variables taking precedence. Provides the URLs in section 9.3 and the per-run suffix: the last 8 digits of the epoch seconds. Created names: roles `E2E_<SCENARIO>_<suffix>` (for example `E2E_S3_12345678`), users `e2e-<scenario>-<suffix>` with email `e2e-<scenario>-<suffix>@cce.local`, menus with key `e2e-<scenario>-<suffix>`. |
+| `{test}/e2e/E2eClients.java` | Create | One `RestClient` for each of the service, the stand-in and Mailpit, and a `keycloak-admin-client` instance for the local master `admin` (`KEYCLOAK_ADMIN_PASSWORD`), used for test-only setup: setting a password and clearing required actions, creating a Keycloak-only account, and reading a user's `enabled` flag and realm roles. |
 | `{test}/e2e/TokenClient.java` | Create | Gets password-grant tokens from `cce-e2e`. |
 | `{test}/e2e/StubMode.java` | Create | Flips `/_stub/mode`. Every test resets it to `ok` in `@AfterEach`. |
-| `{test}/e2e/ScenarioS1MenusE2E.java` | Create | S1 and B5, as in section 10. |
-| `{test}/e2e/ScenarioS2OnboardUserE2E.java` | Create | S2, including the linking case. |
-| `{test}/e2e/ScenarioS3ConfigureRoleE2E.java` | Create | S3. |
-| `{test}/e2e/ScenarioS4ChangeRolesE2E.java` | Create | S4. |
-| `{test}/e2e/ScenarioS5DeactivateE2E.java` | Create | S5. |
-| `{test}/e2e/ScenarioS6SyncFailureE2E.java` | Create | S6. |
-| `{test}/e2e/HardControlE2E.java` | Create | A console user's token gets 403 `FORBIDDEN` on `GET /users` and 200 on `GET /me/menus`. |
+| `{test}/e2e/Scenario*E2E.java`, `HardControlE2E.java` | Create | One class per row of the table below. |
 | `README.md` | Modify | How to run the E2E checks. |
+
+Each scenario class implements the matching bullet of section 10, with these specifics:
+
+| Class | Setup | Checks |
+|---|---|---|
+| `ScenarioS1MenusE2E` | Two roles with overlapping menus, synced; a user holding both, with a password set through `E2eClients`. | The user's `GET /me/menus` is the merged tree (S1, B5). |
+| `ScenarioS2OnboardUserE2E` | A synced role; a Keycloak-only account created through `E2eClients`. | A new user is created with Keycloak roles, a local row, `USER_CREATED` and the Mailpit email; the Keycloak-only account is linked (`after.linked = true`). |
+| `ScenarioS3ConfigureRoleE2E` | None. | Create gives `SYNCED` and a realm role; a `DETAIL`-only grant gives the warning; a permission save gives 200 and two audit rows. |
+| `ScenarioS4ChangeRolesE2E` | Two synced roles and a user holding one. | Replacing the set moves only the changed Keycloak mappings. |
+| `ScenarioS5DeactivateE2E` | A user with a synced role and a password. | `INACTIVE` disables the Keycloak account, keeps `user_roles`, and the user's token gets 403; `ACTIVE` restores access. |
+| `ScenarioS6SyncFailureE2E` | A user holding one already-synced role, created **before** the stand-in is switched to `fail`. | With the stand-in failing: a new role is created with 201 and `ROLE_SYNC_FAILED`; its permission save gives 502 `ROLE_PERMISSIONS_SAVE` with the rows saved and a `FAILED` `ROLE_SYNC_REQUESTED` row; assigning it to the user gives 409 `ROLE_NOT_SYNCED`. After switching to `ok`, a re-sync gives 200 and the assignment succeeds. |
+| `HardControlE2E` | A role `E2E_HC_<suffix>` with no explicit permission rows (only the implicit ones), synced; a user holding only that role, with a password set. | The user's token gets 403 `FORBIDDEN` on `GET /users` and 200 on `GET /me/menus`. |
 
 **Exit check:**
 1.  `docker compose --profile app down -v`, then `docker compose --profile app up -d --build --wait`.
-2.  `./mvnw -Pe2e verify` passes every scenario.
+2.  `./mvnw -Pe2e verify` runs and passes every scenario class.
 3.  `./mvnw verify` still passes and runs no E2E test.
 4.  `./mvnw -f gateway-stub/pom.xml verify` passes.
 
@@ -1927,11 +2064,14 @@ B3).
 *   **E2E:** `./mvnw -Pe2e verify` against `docker compose --profile app up -d --build --wait`.
 *   **Static analysis and coverage:** none is required beyond compilation. The PRD sets no
     coverage figure. Its definition of done ("the happy path and at least one error code per
-    endpoint", PRD §11) is covered by the service and web tests listed per phase, and
-    `MutatingEndpointsAuditGuardTest` keeps new mutating endpoints from skipping an audit test.
+    endpoint", PRD §11) is covered by the service and web tests listed per phase.
+    `MutatingEndpointsAuditGuardTest` fails the build when a non-GET mapping is missing from its
+    list, so a new mutating endpoint forces a review. It does not verify that an audit test
+    exists.
 *   **CI:** no pipeline file is delivered (DEV-2). Running the commands above locally stands in
     for it.
 
 --------------------------------------------------------------------------------
 
 *Drafted with EGM*
+

@@ -1,0 +1,102 @@
+{
+  "duration_api_ms": 2438244,
+  "stop_reason": "end_turn",
+  "session_id": "02eb6e8f-75ce-4bca-bef2-98c5fc29ddf1",
+  "total_cost_usd": 15.312681400000002,
+  "usage": {
+    "input_tokens": 20,
+    "cache_creation_input_tokens": 45872,
+    "cache_read_input_tokens": 5441777,
+    "output_tokens": 19405,
+    "output_tokens_details": {
+      "thinking_tokens": 6951
+    },
+    "server_tool_use": {
+      "web_search_requests": 0,
+      "web_fetch_requests": 0
+    },
+    "service_tier": "standard",
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 45872,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "inference_geo": "global",
+    "iterations": [
+      {
+        "input_tokens": 2,
+        "output_tokens": 2370,
+        "cache_read_input_tokens": 562955,
+        "cache_creation_input_tokens": 955,
+        "cache_creation": {
+          "ephemeral_5m_input_tokens": 0,
+          "ephemeral_1h_input_tokens": 955
+        },
+        "type": "message"
+      }
+    ],
+    "speed": "standard",
+    "fallback_credit": null
+  },
+  "modelUsage": {
+    "claude-opus-5-5": {
+      "inputTokens": 174,
+      "outputTokens": 282516,
+      "thinkingTokens": 84228,
+      "cacheReadInputTokens": 26293127,
+      "cacheCreationInputTokens": 550380,
+      "cacheCreationEphemeral5mInputTokens": 0,
+      "cacheCreationEphemeral1hInputTokens": 550380,
+      "webSearchRequests": 0,
+      "costUSD": 15.312681400000002,
+      "contextWindow": 1000000,
+      "maxOutputTokens": 128000,
+      "canonicalModel": "claude-opus-5-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  },
+  "permission_denials": [],
+  "terminal_reason": "completed",
+  "fast_mode_state": "off",
+  "fast_mode_disabled_reason": "sdk_opt_in_required",
+  "subagent_stats": {
+    "spawned": 0,
+    "requested": {
+      "background": 0,
+      "foreground": 0,
+      "unset": 0
+    },
+    "started_in_background": 0,
+    "max_depth": 0,
+    "spawned_by_subagents": 0,
+    "completed": 0,
+    "failed": 0,
+    "killed": {
+      "parent": 0,
+      "user": 0,
+      "system": 0
+    },
+    "refused": {
+      "depth_limit": 0,
+      "concurrency_limit": 0,
+      "budget": 0
+    },
+    "by_type": {}
+  },
+  "safety_stops": 0,
+  "is_error": false,
+  "num_turns": 32,
+  "subtype": "success",
+  "api_error_status": null,
+  "result": "The console design now matches the resolved admin-service contract, and I didn't touch `cce-admin-service.md`. I compared it name for name against \u00a74.1, \u00a74.2, \u00a74.4, \u00a74.5, \u00a74.6 and \u00a79.3, and also read \u00a75 and \u00a78, because the resubmit and empty-steps rules depend on them. Nothing is left that blocks the console.\n\n**What I changed in `docs/designs/cce-admin-ui.md`:**\n\n1. **`PartialStateOperation`** now lists the seven operations explicitly, without `ROLE_CREATE` or `ROLE_DELETE`. `PartialState.entityId` is `string`, no longer nullable. `auditLogId` and `keycloakUserId` stay `string | null`.\n2. **`Warning`** is now a union on `code`, matching the table in \u00a74.1. `DETAIL_WITHOUT_PARENT` has `menuId` and `parentMenuId`. `ACTION_EMAIL_NOT_SENT` and `ROLE_SYNC_FAILED` have only `code` and `message`. The API client section records this as the one exception to the null-fields rule.\n3. **Named records:** `RoleSyncResult.lastSyncAt` is `string`, no longer nullable. The four records keep the names used in \u00a74.4. Where \u00a74.4 types `syncStatus` as `string`, `contract.ts` narrows it to the three-value `SyncStatus`, and the design says so.\n4. **Resubmitting user writes:**\n   - The `SyncFailedNotice` texts for create, profile, status and roles now say to submit the same request again, and to pass the ids to an operator only if it fails again. That matches \u00a74.2 and \u00a75 \"Recovery by resubmitting\".\n   - A new rule keeps every user form or button usable after a 502, with the values that were sent, even though the page's data is reloaded. A form resets to server values only after a success. Items 70 and 84 now say this.\n   - Goal 2, the Problem section and the Overview's recovery paragraph changed to match.\n5. **Empty-steps rule:** the reason it stays true after a timeout now cites \u00a78 rule 4 and account linking. `ROLE_SYNC` notes that its steps are always empty even though an audit row is written. `ROLE_PERMISSIONS_SAVE` always has completed steps (\u00a75.7), so I removed the \"502 with no steps keeps the edits\" branch, its test case and its exit-check wording.\n6. **Conflict wording:** a field now shows the server message.\n   - `USERNAME_IN_USE` and `EMAIL_IN_USE` also cover a Keycloak account that can't be linked.\n   - `DUPLICATE_ROLE_NAME` also covers existing `api_permissions` rows and a leftover realm role.\n7. **`ROLE_IN_USE`:** the Roles list says it can come even when `userCount` (local users only) is 0, because a Keycloak user may hold the realm role. After a delete, the name can't be reused until a later sync removes the realm role.\n8. **Tests:** `UserEditPage` gains cases for a 502 on profile and on roles that keep the values and resend the same body. `SyncFailedNotice` covers all seven operations and an audit log id that is `null`.\n9. **Anchors:**\n   - The 8 links into `cce-admin-service.md` are checked. The gateway-sync link now points to `#510-gateway-sync-procedure`, and \u00a75 citations are narrowed to \u00a75.7 where that is meant.\n   - The AD-11 link now points to the author-decisions table, because the AD-11 heading contains a link and its anchor differs between renderers.\n   - The D-05 anchor in `author-decisions.md` exists.\n   - The admin-service \u00a74.4 link back to the console's old CQ-1 heading no longer had a target. I added an `<a id>` anchor with that name at Author Decisions, so the link works again.\n\n**Points for the admin-service design (none blocks the console):**\n- **\u00a74.1 contradicts itself on warnings.** The null-fields bullet says only four fields are ever left out of a response. The Warning shape still writes `menuId?` and `parentMenuId?` and says a warning \"carries only the reference fields its code defines\". The console's union works either way, but the contract should say whether those fields are left out or sent as `null`.\n- **Stale link in \u00a74.4.** It points to `cce-admin-ui.md#points-about-the-contract-raised-by-this-design-decided`. That works now only through the anchor I added. Pointing it at `#author-decisions-in-this-design` (UI-AD-05) would remove the dependency.\n- **`syncStatus` types (minor).** \u00a74.4 types `syncStatus` as `string` in `RoleSyncResult` and `RolePermissions`. Naming the three values there would match the Role resource.",
+  "ttft_ms": 3709,
+  "type": "result",
+  "duration_ms": 173782,
+  "uuid": "f05f7f48-1800-4058-b092-7d4291913770",
+  "ttft_stream_ms": 2799,
+  "time_to_request_ms": 783,
+  "first_content_frame_ms": 2799,
+  "queued_turn_count": 0,
+  "result_index": 0,
+  "credential_expires_at": "2026-11-25T12:02:27.741Z"
+}

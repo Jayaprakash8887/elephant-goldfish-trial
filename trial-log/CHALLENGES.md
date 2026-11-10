@@ -35,6 +35,8 @@ Causes:
 | C-14 | Drafting | One question per turn makes drafting a long series of round trips | EGM by design | Partly mitigated |
 | C-15 | Review | A stage orchestrator returned before its reviewers finished, and a reviewer read a large linked design only in part | EGM / Host | Handled by the review session; recorded |
 | C-16 | Review | 145 findings for one design, from stages that disagree on direction, so the author must arbitrate | EGM by design | Resolved by author triage |
+| C-17 | Review | Review rounds on a plan written at code level do not converge, because fixes create new findings | EGM by design | Stopped after round 2; the build checks take over |
+| C-18 | Resolve | The plan's 5-hour usage limit stopped two sessions mid-turn, leaving partial edits and a false "resolved" status | Host / Environment | Recovered by resuming each session with a check-and-finish prompt |
 
 ## Details
 
@@ -251,3 +253,60 @@ Causes:
 - **For teams:** budget author time for triage after every review. The Stage 8 reviewer, which
   checks earlier findings against the document's purpose, is the most useful guard against a
   design growing with each round.
+
+### C-17 · Review rounds on a code-level plan do not converge
+
+- **What happened:** after round 1's fixes were applied, a second Stage 9 (implementation
+  readiness) review ran on each design (H-041, H-042).
+
+  | Design | Stage 9 round 1 | Stage 9 round 2 |
+  |---|---|---|
+  | admin-service | 2 Blockers, 22 Majors, 23 Nits | 1 Blocker, 26 Majors, 36 Nits |
+  | admin-ui | 0 Blockers, 17 Majors, 30 Nits | 0 Blockers, 11 Majors, 23 Nits |
+
+  - **admin-service:** 18 of round 1's findings came back in some form. In six of them, the text
+    added by the round-1 fix was itself the new defect. Examples are a "shared" Testcontainers
+    base that Spring's context cache cannot reuse, repository method names Spring Data cannot
+    derive, and a timestamp rule for columns three tables do not have.
+  - **admin-ui:** four of its Majors appeared where round 1's fixes had landed.
+- **Why:** EGM's implementation-readiness standard requires a plan with no decisions left
+  ("Zero-Decision Rule"). On a service this size, that pushes the plan down to class names,
+  repository methods, annotations and test fixtures, which is code written as prose. Prose code
+  is never compiled. Each review finds the errors in it, each fix adds more prose code, and the
+  next review finds errors in that. The service design grew from 1,653 to 1,937 lines after one
+  round of fixes.
+- **Resolution here:** EGM allows one re-review per stage, and round 2 used it. The author
+  resolved round 2's findings once, so the design stays the source of truth that the later
+  drift report compares against. Then review stopped, and the plan's exit checks during
+  implementation (`./mvnw verify`, `npm run build`, the tests) act as the next "review". Gaps
+  the implementer meets are recorded as `DESIGN-GAP` notes and counted.
+- **For teams:**
+  - Keep the plan at the level of files, contracts, behaviour and exit checks. Leave code-level
+    details (repository method names, annotation sets, fixture wiring) to the implementer and
+    the compiler.
+  - Review the feature-level design (Stages 5 to 8) thoroughly. Treat Stage 9 as a check of the
+    plan's completeness and order, not as a code review.
+  - Stop at one round of Stage 9 unless it finds Blockers.
+
+### C-18 · The usage limit stops sessions mid-turn and leaves partial state
+
+- **What happened:** at 14:59 UTC both round-2 resolve turns (H-043, H-044) ended with "You've
+  hit your 5-hour limit · resets 8:50pm (Asia/Kolkata)".
+  - The **service session** had already written `goldfish_review_report_round2.md` with
+    "Status: resolved" at the top, but had not applied any of its 66 fixes to the design.
+  - The **console session** had applied part of its fixes, about 170 changed lines, before it
+    stopped.
+
+  All the EGM sessions, the reviewer subagents and the orchestrating session draw on the same
+  plan limit. By then the trial had used about 3.5 hours of mostly parallel work: two drafts,
+  two full five-stage reviews, two resolves and two Stage 9 re-reviews.
+- **Impact:** about 40 minutes of waiting. Worse, the state on disk was misleading: a
+  "resolved" report next to an unchanged design.
+- **Resolution:** after the reset the user said "resume". Each session was resumed with a prompt
+  that stated what was on disk and asked it to check the design against its report item by
+  item, apply what was missing, and make the status line true (H-045, H-046).
+- **For teams:**
+  - Never trust a report's status line after an interrupted turn. Compare it with the files.
+  - Commit after every completed EGM turn, so an interruption is visible as a diff.
+  - Plan multi-design runs around the usage limit. Run fewer sessions in parallel, or use API
+    billing for long unattended runs.

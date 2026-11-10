@@ -287,7 +287,67 @@ Generated from [HISTORY.md](HISTORY.md) by `trial-log/tools/qa.py`. Do not edit 
 >
 > Then mark the report resolved, as the skill's Step 5 says.
 
-### Q13 · asked in H-038 (2026-11-10 14:37 UTC) · no question asked
+### Q13 · asked in H-038 (2026-11-10 14:37 UTC) · answered in H-040
+
+**EGM asked:**
+
+> (this reply asks no question)
+
+**Answer given:**
+
+> The admin-service resolve is finished. docs/designs/cce-admin-service.md is final for now (1,937 lines, all 39 review fixes applied). Re-check the console design against it, and fix any mismatch in docs/designs/cce-admin-ui.md:
+>
+> 1. Read admin-service §4.1, §4.2, §4.4, §4.5, §4.6 and §9.3 in full.
+> 2. Compare against them, name for name:
+>    - every code, warning and operation name, and every field, in src/api/contract.ts as your plan specifies it;
+>    - the SyncFailedNotice table;
+>    - error mapping;
+>    - the screens.
+>    Check in particular:
+>    - the PartialStateOperation list: seven operations, without ROLE_CREATE or ROLE_DELETE;
+>    - entityId is no longer nullable;
+>    - auditLogId can be null;
+>    - the warning codes ACTION_EMAIL_NOT_SENT and ROLE_SYNC_FAILED, each with no reference fields;
+>    - the named records ResetPasswordResult, RoleSyncResult, RolePermissions and RoleMenus;
+>    - the resubmit rule for every user operation;
+>    - the new DUPLICATE_ROLE_NAME and ROLE_IN_USE wording.
+> 3. Check that every anchor you link to in the admin-service design exists.
+> Reply with a list of what you changed, and anything in the contract the console still cannot meet. Do not change the admin-service design. Do not start a new review.
+
+### Q14 · asked in H-040 (2026-11-10 14:43 UTC) · answered in H-044
+
+**EGM asked:**
+
+> (this reply asks no question)
+
+**Answer given:**
+
+> /egm:egm-resolve
+>
+> TargetFile: docs/designs/cce-admin-ui.md
+> LineRange: full file
+> FindingsList: the 11 Majors and 23 Nits in egm/admin-ui/stage9_round2_report.md (round-2 Stage 9 review).
+> EGM artifact directory: egm/admin-ui/
+>
+> The author's decision on the one choice the report leaves open:
+> - IR-2: keep the type-checked ESLint preset (it catches floating promises and misused promises, which are real bugs in this code). Make the plan's code satisfy it in the standard way: call fire-and-forget promises with `void` (for example `void bootstrap(...)`), and configure `@typescript-eslint/no-misused-promises` with `checksVoidReturn: { attributes: false }` so that `onSubmit={handleSubmit(fn)}` passes. Name both in the ESLint entry.
+> All other findings: take them as the report proposes. Where a fix needs a choice that has one defensible answer, make it; where it needs a real trade-off, choose the option with fewer moving parts and say so.
+>
+> To save a round trip: the author pre-approves "auto accept" for this round. Write goldfish_review_report.md (round 2: name it goldfish_review_report_round2.md so the round-1 report is kept). If no finding is CONTEST or ESCALATE, apply every PROPOSE FIX in this same turn, mark the report resolved, and reply with what changed. If any finding is CONTEST or ESCALATE, stop before applying anything and list those first.
+
+### Q15 · asked in H-044 (2026-11-10 14:59 UTC) · answered in H-046
+
+**EGM asked:**
+
+> (this reply asks no question)
+
+**Answer given:**
+
+> Your previous turn stopped part-way when the account hit its usage limit. When it stopped, egm/admin-ui/goldfish_review_report_round2.md said "Status: resolved", and docs/designs/cce-admin-ui.md had been partly edited (108 lines added, 61 removed since the last commit). It is not known whether every fix was applied.
+>
+> Check the design against the report item by item (IR-1 to IR-11 and every Nit). Apply any PROPOSE FIX that is missing. The author's pre-approval of "auto accept" from the previous message still stands. Make sure the report's status line is true. Reply with a list of the items that were already applied and the items you applied in this turn.
+
+### Q16 · asked in H-046 (2026-11-10 15:45 UTC) · no question asked
 
 **EGM asked:**
 
@@ -707,7 +767,47 @@ Generated from [HISTORY.md](HISTORY.md) by `trial-log/tools/qa.py`. Do not edit 
 >
 > Apply all 39 proposed fixes to docs/designs/cce-admin-service.md and keep egm/admin-service/design_draft.md identical to it. Then mark the report resolved, as the skill's Step 5 says. In your reply, list the contract changes to §4 and §9.3 exactly as they now read, so that they can be passed to the console session.
 
-### Q19 · asked in H-039 (2026-11-10 14:40 UTC) · no question asked
+### Q19 · asked in H-039 (2026-11-10 14:40 UTC) · answered in H-043
+
+**EGM asked:**
+
+> (this reply asks no question)
+
+**Answer given:**
+
+> /egm:egm-resolve
+>
+> TargetFile: docs/designs/cce-admin-service.md
+> LineRange: full file
+> FindingsList: the 1 Blocker, 26 Majors and 36 Nits in egm/admin-service/stage9_round2_report.md (round-2 Stage 9 review), plus three points the console design raised after checking against this contract:
+>   (C1) §4.1 contradicts itself on warnings: the null-fields bullet says only four optional fields are ever left out, but the Warning shape writes `menuId?`/`parentMenuId?`. Decide one rule (the console types Warning as a union on `code`; DETAIL_WITHOUT_PARENT carries menuId and parentMenuId, the other two codes carry neither) and state it.
+>   (C2) The §4.4 link to the console design's old CQ-1 heading should point at `../../docs/designs/cce-admin-ui.md#author-decisions-in-this-design`.
+>   (C3) Name the three syncStatus values in RoleSyncResult and RolePermissions, as in the Role resource.
+> EGM artifact directory: egm/admin-service/
+>
+> The author's decision on the choice the report leaves open:
+> - M-14: keep the Keycloak timeouts without a custom HTTP client. Configure them through keycloak-admin-client's own builder (a Resteasy client built with connect and read timeouts, passed to KeycloakBuilder), so the library's own client is used.
+> All other findings: take them as the report proposes. Where a fix needs a choice with one defensible answer, make it; where it needs a trade-off, choose the option with fewer moving parts and say so. Prefer the standard Spring Boot / Spring Data / Testcontainers idiom over anything hand-written (for example, Testcontainers with @ServiceConnection or a singleton container started once in a static initializer; required properties validated with @ConfigurationProperties and @Validated).
+>
+> This is the last review round before implementation. To save a round trip, the author pre-approves "auto accept": write goldfish_review_report_round2.md (keeping the round-1 report). If no finding is CONTEST or ESCALATE, apply every PROPOSE FIX in this same turn, keep egm/admin-service/design_draft.md identical to the design, mark the report resolved, and reply with what changed (and any change to §4 or §9.3 the console must mirror). If any finding is CONTEST or ESCALATE, stop before applying anything and list those first.
+
+### Q20 · asked in H-043 (2026-11-10 14:59 UTC) · answered in H-045
+
+**EGM asked:**
+
+> (this reply asks no question)
+
+**Answer given:**
+
+> Your previous turn stopped part-way when the account hit its usage limit. When it stopped, egm/admin-service/goldfish_review_report_round2.md existed and already said "Status: resolved", but docs/designs/cce-admin-service.md and egm/admin-service/design_draft.md were both unchanged. So none of the 66 fixes had been applied, and the status line was written too early.
+>
+> Finish the job:
+> 1. Apply every PROPOSE FIX in goldfish_review_report_round2.md to docs/designs/cce-admin-service.md. The author's pre-approval of "auto accept" from the previous message still stands.
+> 2. Keep egm/admin-service/design_draft.md identical to the design.
+> 3. Then check the report's status line, and make it true.
+> 4. Reply with what changed, and with any change to §4 or §9.3 the console must mirror.
+
+### Q21 · asked in H-045 (2026-11-10 15:45 UTC) · no question asked
 
 **EGM asked:**
 
@@ -728,4 +828,20 @@ Generated from [HISTORY.md](HISTORY.md) by `trial-log/tools/qa.py`. Do not edit 
 **EGM asked:**
 
 > (this reply asks no question)
+
+## Session `c7d68ef0`: Review admin-ui round 2: Stage 9 only (implementation readiness)
+
+### Q1 · asked in H-041 (2026-11-10 14:55 UTC) · no question asked
+
+**EGM asked:**
+
+> (this reply asks no question)
+
+## Session `213e827e`: Review admin-service round 2: Stage 9 only (implementation readiness)
+
+### Q1 · asked in H-042 (2026-11-10 14:56 UTC) · **waiting for an answer**
+
+**EGM asked:**
+
+> How would you like to proceed?
 

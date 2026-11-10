@@ -2277,3 +2277,400 @@ The console values, the stand-in switch URL, the reset command and the `.env` va
 **Not shared with the console (§9.4):** `GATEWAY_SYNC_SCOPE`, `PERMISSION_CACHE_TTL` and `AUDIT_TRUST_FORWARDED_FOR` are removed, and `TRUSTED_PROXIES` is added.
 ````
 
+### H-040 · 2026-11-10 14:43 UTC · EGM session turn · admin-ui: cross-check against the resolved admin-service contract
+
+- **Session:** `02eb6e8f-75ce-4bca-bef2-98c5fc29ddf1` (resumed)
+- **Answers:** the question at the end of H-038 (see [QA.md](QA.md))
+- **Took:** 2.9 min · 32 model turns · est. $15.31 · output tokens 19,405
+- **Ran:** Claude Code 2.1.319 (Claude Code) headless, model `claude-opus-5-5`, effort `high`, permission mode `acceptEdits`
+- **Result:** ok
+- **Files changed:** `docs/designs/cce-admin-ui.md` (changed)
+
+**Input** (sent by the orchestrating Claude session):
+
+````text
+The admin-service resolve is finished. docs/designs/cce-admin-service.md is final for now (1,937 lines, all 39 review fixes applied). Re-check the console design against it, and fix any mismatch in docs/designs/cce-admin-ui.md:
+
+1. Read admin-service §4.1, §4.2, §4.4, §4.5, §4.6 and §9.3 in full.
+2. Compare against them, name for name:
+   - every code, warning and operation name, and every field, in src/api/contract.ts as your plan specifies it;
+   - the SyncFailedNotice table;
+   - error mapping;
+   - the screens.
+   Check in particular:
+   - the PartialStateOperation list: seven operations, without ROLE_CREATE or ROLE_DELETE;
+   - entityId is no longer nullable;
+   - auditLogId can be null;
+   - the warning codes ACTION_EMAIL_NOT_SENT and ROLE_SYNC_FAILED, each with no reference fields;
+   - the named records ResetPasswordResult, RoleSyncResult, RolePermissions and RoleMenus;
+   - the resubmit rule for every user operation;
+   - the new DUPLICATE_ROLE_NAME and ROLE_IN_USE wording.
+3. Check that every anchor you link to in the admin-service design exists.
+Reply with a list of what you changed, and anything in the contract the console still cannot meet. Do not change the admin-service design. Do not start a new review.
+````
+
+**Output** (final reply of the headless session):
+
+````markdown
+The console design now matches the resolved admin-service contract, and I didn't touch `cce-admin-service.md`. I compared it name for name against §4.1, §4.2, §4.4, §4.5, §4.6 and §9.3, and also read §5 and §8, because the resubmit and empty-steps rules depend on them. Nothing is left that blocks the console.
+
+**What I changed in `docs/designs/cce-admin-ui.md`:**
+
+1. **`PartialStateOperation`** now lists the seven operations explicitly, without `ROLE_CREATE` or `ROLE_DELETE`. `PartialState.entityId` is `string`, no longer nullable. `auditLogId` and `keycloakUserId` stay `string | null`.
+2. **`Warning`** is now a union on `code`, matching the table in §4.1. `DETAIL_WITHOUT_PARENT` has `menuId` and `parentMenuId`. `ACTION_EMAIL_NOT_SENT` and `ROLE_SYNC_FAILED` have only `code` and `message`. The API client section records this as the one exception to the null-fields rule.
+3. **Named records:** `RoleSyncResult.lastSyncAt` is `string`, no longer nullable. The four records keep the names used in §4.4. Where §4.4 types `syncStatus` as `string`, `contract.ts` narrows it to the three-value `SyncStatus`, and the design says so.
+4. **Resubmitting user writes:**
+   - The `SyncFailedNotice` texts for create, profile, status and roles now say to submit the same request again, and to pass the ids to an operator only if it fails again. That matches §4.2 and §5 "Recovery by resubmitting".
+   - A new rule keeps every user form or button usable after a 502, with the values that were sent, even though the page's data is reloaded. A form resets to server values only after a success. Items 70 and 84 now say this.
+   - Goal 2, the Problem section and the Overview's recovery paragraph changed to match.
+5. **Empty-steps rule:** the reason it stays true after a timeout now cites §8 rule 4 and account linking. `ROLE_SYNC` notes that its steps are always empty even though an audit row is written. `ROLE_PERMISSIONS_SAVE` always has completed steps (§5.7), so I removed the "502 with no steps keeps the edits" branch, its test case and its exit-check wording.
+6. **Conflict wording:** a field now shows the server message.
+   - `USERNAME_IN_USE` and `EMAIL_IN_USE` also cover a Keycloak account that can't be linked.
+   - `DUPLICATE_ROLE_NAME` also covers existing `api_permissions` rows and a leftover realm role.
+7. **`ROLE_IN_USE`:** the Roles list says it can come even when `userCount` (local users only) is 0, because a Keycloak user may hold the realm role. After a delete, the name can't be reused until a later sync removes the realm role.
+8. **Tests:** `UserEditPage` gains cases for a 502 on profile and on roles that keep the values and resend the same body. `SyncFailedNotice` covers all seven operations and an audit log id that is `null`.
+9. **Anchors:**
+   - The 8 links into `cce-admin-service.md` are checked. The gateway-sync link now points to `#510-gateway-sync-procedure`, and §5 citations are narrowed to §5.7 where that is meant.
+   - The AD-11 link now points to the author-decisions table, because the AD-11 heading contains a link and its anchor differs between renderers.
+   - The D-05 anchor in `author-decisions.md` exists.
+   - The admin-service §4.4 link back to the console's old CQ-1 heading no longer had a target. I added an `<a id>` anchor with that name at Author Decisions, so the link works again.
+
+**Points for the admin-service design (none blocks the console):**
+- **§4.1 contradicts itself on warnings.** The null-fields bullet says only four fields are ever left out of a response. The Warning shape still writes `menuId?` and `parentMenuId?` and says a warning "carries only the reference fields its code defines". The console's union works either way, but the contract should say whether those fields are left out or sent as `null`.
+- **Stale link in §4.4.** It points to `cce-admin-ui.md#points-about-the-contract-raised-by-this-design-decided`. That works now only through the anchor I added. Pointing it at `#author-decisions-in-this-design` (UI-AD-05) would remove the dependency.
+- **`syncStatus` types (minor).** §4.4 types `syncStatus` as `string` in `RoleSyncResult` and `RolePermissions`. Naming the three values there would match the Role resource.
+````
+
+### H-041 · 2026-11-10 14:55 UTC · EGM session turn · Review admin-ui round 2: Stage 9 only (implementation readiness)
+
+- **Session:** `c7d68ef0-b98b-49f4-b3a2-9cb161caecd0` (new)
+- **Took:** 11.8 min · 10 model turns · est. $5.56 · output tokens 18,624
+- **Ran:** Claude Code 2.1.319 (Claude Code) headless, model `claude-opus-5-5`, effort `high`, permission mode `acceptEdits`
+- **Result:** ok
+- **Files changed:** `egm/admin-ui/stage9_round2_report.md` (added)
+
+**Input** (sent by the orchestrating Claude session):
+
+````text
+/egm:egm-review docs/designs/cce-admin-ui.md 9
+
+EGM artifact directory: egm/admin-ui/
+
+This is a second-round check after the first review's 30 fixes and the contract alignment were applied. Run only Stage 9 (implementation readiness) on the Detailed Implementation Plan. Proceed with no additional GoldfishContext: use only the files the design links to inside this folder, which include docs/designs/cce-admin-service.md, the contract it mirrors. Leave out any URL. Nobody is available to approve those in this run. Write the stage report as stage9_round2_report.md, so that the first round's implementation_readiness_report.md is kept. At the Stage 9 checkpoint, stop and report. Do not resolve or apply fixes.
+````
+
+**Output** (final reply of the headless session):
+
+````markdown
+The round 2 Stage 9 check finds the admin-ui implementation plan still not ready: 0 Blockers, 11 Majors and 23 Nits (round 1 had 17 Majors and 30 Nits). The report is at `egm/admin-ui/stage9_round2_report.md`, and round 1's `implementation_readiness_report.md` is unchanged.
+
+The plan starts at line 1111, so the review covered lines 1111–2104. All three reviewers finished: implementation-readiness, codebase-details and style. They read only the eight files the design links to inside this folder, including `cce-admin-service.md`. The design links to no URLs, so nothing was left out.
+
+**What matches:** the codebase-details reviewer checked the contract against admin-service §3, §4 and §9 and found no mismatch in endpoints, fields, status and error codes, headers, query parameters or roles. The version pins match D-05 exactly.
+
+**What still stops implementation (Majors):**
+- **Step checkpoints that fail as written:**
+  - Step 2 adds about 15 files that its tests never use, so it misses its own 80% coverage threshold.
+  - The type-checked ESLint preset rejects code the plan itself specifies, such as `bootstrap(...)` without `await` and `onSubmit={handleSubmit(fn)}`.
+  - A step 3 test needs a component that step 4 creates.
+- **The Docker check:** it fails if the service runs under compose, because compose publishes port 8085 only on `127.0.0.1`.
+- **Behaviour left to the implementer:**
+  - Whether a form keeps or resets its values after a refetch. User forms and the Permissions form have opposite rules, and no mechanism is given for either.
+  - How `config.test.ts` proves that only the four variables are read.
+- **Test gaps and overclaims:**
+  - The query client's retry and refetch rules have no direct test.
+  - "At least one error code per endpoint" is not backed by the test table.
+  - "Proves each rule fires" claims more than the lint fixtures check.
+  - The number of import rules is given as four, five and six in different places.
+  - Earlier sections are cited by informal names instead of links.
+
+**How these relate to round 1:**
+- **Re-opened:** ST-1 repeats round-1 CD-4. The fix added the per-endpoint sentence but not the table rows to back it.
+- **Possible churn:** IR-2. Dropping round 1's `recommendedTypeChecked` change would clear these lint errors. Adding rule overrides fixes them too and keeps that change, so this is a choice for the author.
+- **New problems where round 1's fixes landed** (not reversals of those fixes): IR-1, IR-3, IR-4 and IR-11.
+
+This was round 2 of the 5-round limit. The round is not clean, so the review has not settled. As you asked, I stopped at the Stage 9 checkpoint without resolving or applying any fixes, and I didn't touch `trial-log/`. The checkpoint's options are:
+- conclude the review;
+- resolve the findings with the agent;
+- update the doc manually and re-run (one re-run is allowed);
+- pause the review.
+````
+
+### H-042 · 2026-11-10 14:56 UTC · EGM session turn · Review admin-service round 2: Stage 9 only (implementation readiness)
+
+- **Session:** `213e827e-def3-4d6f-b8f2-33d81e5e8e1a` (new)
+- **Took:** 15.9 min · 7 model turns · est. $7.70 · output tokens 31,765
+- **Ran:** Claude Code 2.1.319 (Claude Code) headless, model `claude-opus-5-5`, effort `high`, permission mode `acceptEdits`
+- **Result:** ok
+- **Files changed:** `egm/admin-service/stage9_round2_report.md` (added), `docs/designs/cce-admin-ui.md` (changed)
+
+**Input** (sent by the orchestrating Claude session):
+
+````text
+/egm:egm-review docs/designs/cce-admin-service.md 9
+
+EGM artifact directory: egm/admin-service/
+
+This is a second-round check after the first review's 39 fixes were applied. Run only Stage 9 (implementation readiness) on the Detailed Implementation Plan. Proceed with no additional GoldfishContext: use only the files the design links to inside this folder, and leave out any URL. Nobody is available to approve those in this run. Write the stage report as stage9_round2_report.md, so that the first round's implementation_readiness_report.md is kept. At the Stage 9 checkpoint, stop and report. Do not resolve or apply fixes.
+````
+
+**Output** (final reply of the headless session):
+
+````markdown
+I ran the Stage 9 second round on the Detailed Implementation Plan (lines 1602–1937) and stopped at the checkpoint without resolving or applying anything. The plan is not ready yet: after merging duplicates there are **1 Blocker, 26 Majors and 36 Nits**.
+
+The report is at `egm/admin-service/stage9_round2_report.md`. The round-1 report, `implementation_readiness_report.md`, is unchanged, and so are the design doc and `trial-log/`.
+
+**How it ran**
+- Three fresh reviewers in parallel: implementation-readiness, codebase-details and style. All three finished.
+- They got only the 7 local files the design links to. The design has no documentation URLs; its `localhost`/`keycloak` strings are configuration values, so they were left out. Reviewers were also kept away from `egm/` and `trial-log/`, so they never saw round 1.
+
+**What's wrong**
+- **Blocker B-1:** `DatabaseTestBase` (line 1674) says its Testcontainers container is shared, but each test class actually gets its own. Spring reuses the first test setup, which still points at the stopped container, so the build fails from Phase 3 on.
+- **Database layer:**
+  - Two locking repository methods can't be generated from their names, so the Phase 2 app won't start.
+  - `ApiPermissionEntity` has no id strategy, so the schema check fails.
+  - The timestamp rule assumes columns that `audit_log`, `role_menus` and `user_roles` don't have.
+  - Recording a sync result changes `roles.updated_at`, which the spec and the plan's own test forbid.
+- **Missing mechanisms:**
+  - Nothing makes a role save commit before the gateway sync, so the stand-in gateway sees no rows.
+  - A missing environment variable won't stop startup (B-13), because Spring passes the unresolved `${...}` text through as the value.
+  - The required error log on every 502 has no file that writes it.
+  - The `admin-service` compose block isn't written out.
+- **Wording:**
+  - "The two sample rows remain" when the fixture inserts five.
+  - "Tests never read `.env`" contradicts `E2eEnvironment`.
+  - Phase 3 still claims B-04 (pagination), which Phases 5 and 6 deliver.
+
+**Compared with round 1**
+- 18 round-1 findings come back in some form, so they count as re-opened. In six of them, the text added by the round-1 fix is now the problem itself: the shared container, `deleteExplicitRows`, the blanket timestamp rule, the custom Keycloak client, and two wording changes.
+- No finding is a clear back-and-forth that undoing a fix would solve. The closest is M-14: dropping the custom Keycloak client would fix it but lose the timeouts round 1 asked for.
+- I couldn't confirm one reviewer claim, that an exception inside a security filter comes back as 401 (M-12). The report says so; the rest of that finding (the wrong error format) holds either way.
+
+**What this means for the stage:** the round isn't clean, so Stage 9 hasn't settled. The review skill allows each stage one re-review, and this was it. A third round is your call.
+
+The checkpoint is waiting for your choice:
+- **Conclude review and finalize document**
+- **Resolve findings with agent:** sort each finding into fix or contest, then apply the edits you approve
+- **I will update doc manually:** pause, and tell me when your edits are done
+- **Pause Review:** save progress and exit
+
+How would you like to proceed?
+````
+
+### H-043 · 2026-11-10 14:59 UTC · EGM session turn · Resolve admin-service round 2: Stage 9 findings + 3 console points (pre-approved auto accept)
+
+- **Session:** `d8132724-9fe1-46b3-8537-799ad75e43bb` (resumed)
+- **Answers:** the question at the end of H-039 (see [QA.md](QA.md))
+- **Took:** 2.0 min · 6 model turns · est. $17.39 · output tokens 13,755
+- **Ran:** Claude Code 2.1.319 (Claude Code) headless, model `claude-opus-5-5`, effort `high`, permission mode `acceptEdits`
+- **Result:** error
+- **Files changed:** `egm/admin-service/goldfish_review_report_round2.md` (added), `docs/designs/cce-admin-ui.md` (changed)
+
+**Input** (sent by the orchestrating Claude session):
+
+````text
+/egm:egm-resolve
+
+TargetFile: docs/designs/cce-admin-service.md
+LineRange: full file
+FindingsList: the 1 Blocker, 26 Majors and 36 Nits in egm/admin-service/stage9_round2_report.md (round-2 Stage 9 review), plus three points the console design raised after checking against this contract:
+  (C1) §4.1 contradicts itself on warnings: the null-fields bullet says only four optional fields are ever left out, but the Warning shape writes `menuId?`/`parentMenuId?`. Decide one rule (the console types Warning as a union on `code`; DETAIL_WITHOUT_PARENT carries menuId and parentMenuId, the other two codes carry neither) and state it.
+  (C2) The §4.4 link to the console design's old CQ-1 heading should point at `../../docs/designs/cce-admin-ui.md#author-decisions-in-this-design`.
+  (C3) Name the three syncStatus values in RoleSyncResult and RolePermissions, as in the Role resource.
+EGM artifact directory: egm/admin-service/
+
+The author's decision on the choice the report leaves open:
+- M-14: keep the Keycloak timeouts without a custom HTTP client. Configure them through keycloak-admin-client's own builder (a Resteasy client built with connect and read timeouts, passed to KeycloakBuilder), so the library's own client is used.
+All other findings: take them as the report proposes. Where a fix needs a choice with one defensible answer, make it; where it needs a trade-off, choose the option with fewer moving parts and say so. Prefer the standard Spring Boot / Spring Data / Testcontainers idiom over anything hand-written (for example, Testcontainers with @ServiceConnection or a singleton container started once in a static initializer; required properties validated with @ConfigurationProperties and @Validated).
+
+This is the last review round before implementation. To save a round trip, the author pre-approves "auto accept": write goldfish_review_report_round2.md (keeping the round-1 report). If no finding is CONTEST or ESCALATE, apply every PROPOSE FIX in this same turn, keep egm/admin-service/design_draft.md identical to the design, mark the report resolved, and reply with what changed (and any change to §4 or §9.3 the console must mirror). If any finding is CONTEST or ESCALATE, stop before applying anything and list those first.
+````
+
+**Output** (final reply of the headless session):
+
+````markdown
+You've hit your 5-hour limit · resets 8:50pm (Asia/Kolkata)
+````
+
+### H-044 · 2026-11-10 14:59 UTC · EGM session turn · Resolve admin-ui round 2: Stage 9 findings (pre-approved auto accept)
+
+- **Session:** `02eb6e8f-75ce-4bca-bef2-98c5fc29ddf1` (resumed)
+- **Answers:** the question at the end of H-040 (see [QA.md](QA.md))
+- **Took:** 3.1 min · 13 model turns · est. $16.66 · output tokens 20,634
+- **Ran:** Claude Code 2.1.319 (Claude Code) headless, model `claude-opus-5-5`, effort `high`, permission mode `acceptEdits`
+- **Result:** error
+- **Files changed:** `egm/admin-ui/goldfish_review_report_round2.md` (added), `docs/designs/cce-admin-ui.md` (changed)
+
+**Input** (sent by the orchestrating Claude session):
+
+````text
+/egm:egm-resolve
+
+TargetFile: docs/designs/cce-admin-ui.md
+LineRange: full file
+FindingsList: the 11 Majors and 23 Nits in egm/admin-ui/stage9_round2_report.md (round-2 Stage 9 review).
+EGM artifact directory: egm/admin-ui/
+
+The author's decision on the one choice the report leaves open:
+- IR-2: keep the type-checked ESLint preset (it catches floating promises and misused promises, which are real bugs in this code). Make the plan's code satisfy it in the standard way: call fire-and-forget promises with `void` (for example `void bootstrap(...)`), and configure `@typescript-eslint/no-misused-promises` with `checksVoidReturn: { attributes: false }` so that `onSubmit={handleSubmit(fn)}` passes. Name both in the ESLint entry.
+All other findings: take them as the report proposes. Where a fix needs a choice that has one defensible answer, make it; where it needs a real trade-off, choose the option with fewer moving parts and say so.
+
+To save a round trip: the author pre-approves "auto accept" for this round. Write goldfish_review_report.md (round 2: name it goldfish_review_report_round2.md so the round-1 report is kept). If no finding is CONTEST or ESCALATE, apply every PROPOSE FIX in this same turn, mark the report resolved, and reply with what changed. If any finding is CONTEST or ESCALATE, stop before applying anything and list those first.
+````
+
+**Output** (final reply of the headless session):
+
+````markdown
+You've hit your 5-hour limit · resets 8:50pm (Asia/Kolkata)
+````
+
+### H-045 · 2026-11-10 15:45 UTC · EGM session turn · Resolve admin-service round 2, recovery: apply the 66 fixes after the usage-limit stop
+
+- **Session:** `d8132724-9fe1-46b3-8537-799ad75e43bb` (resumed)
+- **Answers:** the question at the end of H-043 (see [QA.md](QA.md))
+- **Took:** 5.5 min · 27 model turns · est. $19.96 · output tokens 41,529
+- **Ran:** Claude Code 2.1.319 (Claude Code) headless, model `claude-opus-5-5`, effort `high`, permission mode `acceptEdits`
+- **Result:** ok
+- **Files changed:** `docs/designs/cce-admin-service.md` (changed), `docs/designs/cce-admin-ui.md` (changed), `egm/admin-service/design_draft.md` (changed), `egm/admin-service/goldfish_review_report_round2.md` (changed)
+
+**Input** (sent by the orchestrating Claude session):
+
+````text
+Your previous turn stopped part-way when the account hit its usage limit. When it stopped, egm/admin-service/goldfish_review_report_round2.md existed and already said "Status: resolved", but docs/designs/cce-admin-service.md and egm/admin-service/design_draft.md were both unchanged. So none of the 66 fixes had been applied, and the status line was written too early.
+
+Finish the job:
+1. Apply every PROPOSE FIX in goldfish_review_report_round2.md to docs/designs/cce-admin-service.md. The author's pre-approval of "auto accept" from the previous message still stands.
+2. Keep egm/admin-service/design_draft.md identical to the design.
+3. Then check the report's status line, and make it true.
+4. Reply with what changed, and with any change to §4 or §9.3 the console must mirror.
+````
+
+**Output** (final reply of the headless session):
+
+````markdown
+All 66 round-2 fixes are now applied to `docs/designs/cce-admin-service.md`. `egm/admin-service/design_draft.md` is byte-identical to it. The design has one Detailed Implementation Plan, and the four headings the console links to are unchanged (§3, §4, §4.6, §9.3).
+
+When I picked this up, `goldfish_review_report_round2.md` said "resolved" although nothing had been applied. I changed it to "being applied" while I worked, and set it to `Status: resolved` once the design and draft matched. Counts: 66 accepted, 0 contested, 0 escalated, 0 declined, 0 unaddressed. None of this has been built or run yet.
+
+## What changed
+
+**Test setup (B-1, M-9, M-10, M-11, M-12, N-3, N-6)**
+- One Postgres container is started once and shared by every test class.
+- All database and web tests share one Spring context, with the Keycloak and gateway client mocks declared once.
+- Before each test, a reset clears the users, role assignments, menu grants and audit rows, and removes every row that isn't seed data.
+- The test token decoder replaces the real one cleanly, so the 401 cases run through the real token validation.
+- The client-IP test now runs over real HTTP in Phase 5, because the proxy handling it checks lives in Tomcat, which the mock test client bypasses.
+- New tests cover filter failures, a 500 response, and the permission check switched off.
+
+**Database layer (M-1 to M-6, N-18, N-24)**
+- Every repository method is listed with its exact signature and query.
+- The id strategy and timestamp handling are now spelled out per table.
+- The services always continue with the object `save` returns.
+- Recording a sync result no longer changes the role's `updated_at`.
+- After a role change, the user's `updated_at` is set by its own update, so it can't be lost.
+
+**Mechanisms the plan hadn't assigned to a file (M-7, M-8, M-13, M-14, M-15, M-16, M-17)**
+- The flow services have no `@Transactional`. Each database step commits before the gateway sync is called, and a test checks that.
+- A missing required environment variable now stops startup, with a message naming the variable. The full `admin:` configuration block is written out.
+- Every 502 logs one `ERROR` line in `key=value` form, emitted by the exception handler and checked by a test.
+- The Keycloak client is built the way the library builds its own, plus the timeouts, as you decided for M-14.
+- The account-linking code has one name, `AccountLinker`, with `link` and `reactivateAsAdmin`. The `User` response shape moved to Phase 4, where linking first needs it.
+- The `admin-service` compose block is written out, and Phase 7 adds a `GET /me` check against the running container.
+
+**Security filters (M-11, M-12, N-15, N-16, N-17)**
+- A request with no token always gets 401, never 403.
+- An unexpected error inside a filter gets the 500 `INTERNAL_ERROR` envelope.
+- A caller with no roles gets 403 without a database query.
+- The 401 keeps its `WWW-Authenticate` header, and the audience check uses Spring Security's own validator.
+
+**Plan text (M-18 to M-26 and the plan-side nits)**
+- The concurrency test now waits until the second request is actually blocked on the lock before releasing the first.
+- The E2E Maven profile now really runs the `*E2E.java` tests.
+- The stand-in's build follows Boot's parent and its two dependencies are interfaces.
+- The 12 seed menu ids and 2 role ids are fixed values.
+- Exit checks are scoped and repeatable, and every scenario has explicit setup.
+- The wording fixes are applied.
+
+## Contract changes the console must mirror
+
+**§4.1 Warning (C1).** A warning is a union on `code`:
+> `{ "code": "DETAIL_WITHOUT_PARENT", "message": string, "menuId": uuid, "parentMenuId": uuid }` or `{ "code": "ACTION_EMAIL_NOT_SENT" | "ROLE_SYNC_FAILED", "message": string }`
+
+The other two codes carry neither reference field, not even as `null`. The null-fields rule now names this as its one exception.
+
+**§4.4 named records (C3):**
+> `RoleSyncResult` is `{ "roleId": uuid, "syncStatus": "NEVER" | "SYNCED" | "FAILED", "lastSyncAt": instant }`.
+> `RolePermissions` is `{ "roleId": uuid, "syncStatus": "NEVER" | "SYNCED" | "FAILED", "lastSyncAt": instant | null, "permissions": [Permission row] }`.
+
+**§4.4 link (C2):** now points to `cce-admin-ui.md#author-decisions-in-this-design`, labelled "UI-AD-05, formerly CQ-1".
+
+**§9.3:** no change.
+
+**Small behaviour change on the console's side:** query parameters such as `q` and `facilityScope` are now trimmed too, as request bodies already were.
+````
+
+### H-046 · 2026-11-10 15:45 UTC · EGM session turn · Resolve admin-ui round 2, recovery: verify and finish fixes after the usage-limit stop
+
+- **Session:** `02eb6e8f-75ce-4bca-bef2-98c5fc29ddf1` (resumed)
+- **Answers:** the question at the end of H-044 (see [QA.md](QA.md))
+- **Took:** 6.1 min · 28 model turns · est. $21.22 · output tokens 46,810
+- **Ran:** Claude Code 2.1.319 (Claude Code) headless, model `claude-opus-5-5`, effort `high`, permission mode `acceptEdits`
+- **Result:** ok
+- **Files changed:** `docs/designs/cce-admin-service.md` (changed), `docs/designs/cce-admin-ui.md` (changed), `egm/admin-ui/goldfish_review_report_round2.md` (changed)
+
+**Input** (sent by the orchestrating Claude session):
+
+````text
+Your previous turn stopped part-way when the account hit its usage limit. When it stopped, egm/admin-ui/goldfish_review_report_round2.md said "Status: resolved", and docs/designs/cce-admin-ui.md had been partly edited (108 lines added, 61 removed since the last commit). It is not known whether every fix was applied.
+
+Check the design against the report item by item (IR-1 to IR-11 and every Nit). Apply any PROPOSE FIX that is missing. The author's pre-approval of "auto accept" from the previous message still stands. Make sure the report's status line is true. Reply with a list of the items that were already applied and the items you applied in this turn.
+````
+
+**Output** (final reply of the headless session):
+
+````markdown
+All 34 findings are now in `docs/designs/cce-admin-ui.md`, and the report's "Status: resolved" line is true again. It wasn't when the previous turn stopped: that turn marked the report resolved before it had touched the Detailed Implementation Plan. The resolution paragraph in `goldfish_review_report_round2.md` now records the two-turn history. I checked every internal anchor against the headings and all 23 resolve. The only stale-wording hit left is the HTML attribute `aria-labelledby`, which is correct as written.
+
+**Already applied before the usage limit** (all in the feature range, all partial):
+- **IR-3:** the reset mechanism in the Technical Plan, both for user forms and for the Permissions tab's `resetKey`, which Re-sync does not change.
+- **IR-5:** Goal 7's check text.
+- **IR-6:** the sentence above the exit-check table that says which step proves each row.
+- **IR-8:** the User edit rule that held roles without a checkbox appear under "Also held:" and are kept in the request.
+- **ST-14:** American spelling throughout ("behavior", "labeled").
+
+**Applied in this turn:** I rewrote the whole Detailed Implementation Plan and fixed two Technical Plan paragraphs.
+- **IR-1:** step 2 now holds only files its own tests reach, and the remaining files move to the step whose tests use them. `api/` modules, hook files and `rules.ts` grow step by step. The coverage wording is fixed.
+- **IR-2 (your decision):** `no-misused-promises` is set with `checksVoidReturn: { attributes: false }`, and `unbound-method` is off for test files only. A new "Coding conventions" section sets the `void` rule, with `void bootstrap(...)` in item 19 and `onSignOut={() => void logout()}` in item 81.
+- **IR-3:** the mechanism now reaches the plan items: user forms read `defaultValues` once and call `reset(user)` after a successful save (items 70 and 73). `PermissionsEditor` is remounted through `key={resetKey}`, which only the tab changes (items 75 and 89).
+- **IR-4:** the Docker smoke check now requires the service to run on the host with `./mvnw spring-boot:run`, and says why.
+- **IR-5:** new `configSource.test.ts` scans the source. `config.test.ts` checks that the `VITE_AUTH_*` stubs change nothing.
+- **CD-1:** the step 3 test asserts only the navigation; the notice is checked in step 4.
+- **CD-2:** new `queryClient.test.ts` covers the retry and refetch rules and the `queryKeys` functions.
+- **ST-1:** error cases are added for `GET /roles`, `GET /menus`, `GET /roles/:id/menus` and `GET /roles/:id/permissions`.
+- **ST-2 and ST-3:** "four import rules" everywhere, configured through five file groups. There are seven lint fixtures, including a new Playwright import in `src/auth/`, mapped to their rules, and the "proves" claim is reworded.
+- **ST-4:** about 25 informal references are now anchor links.
+- **IR-6 (rest):** step 2's item list no longer repeats items 22 and 23, and the test table has a Step column.
+- **IR-7:** `apiRequest` throws `CLIENT_UNEXPECTED_RESPONSE` on a 2xx without the envelope, and a new `apiDelete` handles the 204. The Technical Plan paragraph matches.
+- **IR-8 (rest):** filtering by `isAssignable` happens in the components. `roleErrorMessages` falls back to "Role {id}". Tests check that `CCE_ADMIN_SERVICE` is hidden and that a held role stays in the request.
+- **IR-9:**
+  - Typed signatures are given for `applyServerErrors` (matching by exact path or by prefix), `ApiError` and `normalizePagingParams`, which rewrites the URL with `replace`.
+  - Props are given for every component.
+  - A single variables convention covers all mutation hooks.
+  - `UserFilters` is controlled, and the page holds the debounced drafts.
+  - The `Pagination` component is renamed `Pager`, and the type `PageInfo`.
+- **IR-10:** a new "Fixed UI texts" table covers the start-up screens, every confirm dialog, the success messages and the not-found texts. Two Technical Plan lines now point to it.
+- **IR-11 to IR-13:**
+  - `tsconfig.node.json` is fully spelled out.
+  - The fake auth spies are typed.
+  - Tests pin `TZ=UTC`.
+  - The lint test has a 60000 ms timeout.
+- **CD-3 to CD-5:**
+  - The browser tests' global setup stops when more than 400 roles exist, and the README says when to reset.
+  - The README explains `KEYCLOAK_ORIGIN`.
+  - Name stems are limited to 1 to 10 upper-case letters or digits.
+- **ST-5 to ST-16:** the remaining wording, units, number formats, full file paths and the `{roleName}` placeholder fixes.
+
+I also corrected the report's IR-1 entry, which listed the step moves inaccurately and named `StatusBadge` twice.
+````
+
