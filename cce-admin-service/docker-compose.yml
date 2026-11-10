@@ -1,0 +1,67 @@
+# Local environment for cce-admin-service (milestone M0, section 9.1 of the design).
+# Every published port is bound to 127.0.0.1. Image tags come from D-05 and never float.
+# gateway-stub is added in Phase 4, and admin-service (profile "app") in Phase 7.
+#
+# DESIGN-GAP: section 9.1 fixes the health check commands but not their interval, timeout,
+# retries or start_period. The values below are the smallest choice that lets
+# "docker compose up -d --wait" wait for a first Keycloak start with a realm import.
+
+services:
+  postgres:
+    image: postgres:16.15-alpine
+    env_file: .env
+    environment:
+      POSTGRES_DB: admin_service
+      POSTGRES_USER: admin_service
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./docker/postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "admin_service", "-d", "admin_service"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.4.7
+    command: ["start-dev", "--import-realm"]
+    env_file: .env
+    environment:
+      KC_HTTP_RELATIVE_PATH: /auth
+      KC_HTTP_MANAGEMENT_RELATIVE_PATH: /
+      KC_HOSTNAME: http://localhost:8180/auth
+      KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "true"
+      # DESIGN-GAP: section 9.1 says only "Database keycloak on postgres". Keycloak connects as
+      # admin_service, the owner of that database (01-create-keycloak-db.sql).
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak
+      KC_DB_USERNAME: admin_service
+      KC_DB_PASSWORD: ${POSTGRES_PASSWORD}
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
+      KC_HEALTH_ENABLED: "true"
+    ports:
+      - "127.0.0.1:8180:8080"
+    volumes:
+      - ./keycloak/realm-cce.json:/opt/keycloak/data/import/realm-cce.json:ro
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/9000 && printf 'GET /health/ready HTTP/1.0\\r\\n\\r\\n' >&3 && grep -q UP <&3"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  mailpit:
+    image: axllent/mailpit:v1.33.1
+    env_file: .env
+    ports:
+      - "127.0.0.1:8025:8025"
+
+volumes:
+  pgdata:

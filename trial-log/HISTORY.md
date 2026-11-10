@@ -2698,3 +2698,31 @@ Agent report (condensed; 125k tokens, 24 tool uses, 6.5 min):
 Orchestrator re-ran the check independently: exit 0.
 ````
 
+### H-048 · 2026-11-10 15:56 UTC · orchestrator action · Implement admin-service phase 1 (M0 and skeleton)
+
+- **Actor:** Orchestrator -> fresh implementation agent
+
+**Input** (what was asked or run):
+
+````text
+Fresh general-purpose agent (Agent tool), brief from scratchpad/prompts/impl-template.txt:
+Design docs/designs/cce-admin-service.md; versions D-05. Scope: Phase 1, local environment (M0) and project skeleton. Build only what the phase lists; mark undecided points DESIGN-GAP; never commit; run the exit check (7 steps) until it passes; leave the compose stack running.
+````
+
+**Output** (what came back):
+
+````markdown
+Agent report (condensed; 166k tokens, 46 tool uses, 9.3 min):
+- Created mvnw (Maven 3.9.16 via wrapper plugin 3.3.4), pom.xml, application class, application.yml, .env.example, docker-compose.yml, postgres init SQL, keycloak/realm-cce.json, scripts/token-claims.mjs, README.md; .env (git-ignored) with random local values.
+- Exit check: steps 1, 2, 4, 5, 6, 7 passed (compose healthy, realm imported; service token aud gateway-service + CCE_ADMIN_SERVICE; account-console sign-in as the test admin via headless Chromium; ./mvnw verify BUILD SUCCESS; no secrets in git).
+- Step 3 FAILED on one item: the password-grant token has iss, aud gateway-service and SUPER_ADMIN but no auth_time. Keycloak 26.4.7 sets the auth_time session note only in browser flows and CIBA (verified with javap on keycloak-services). Browser (PKCE) tokens do carry auth_time.
+DESIGN-GAPs:
+ 1. auth_time absent for password grant -> AD-05 last_login_at is never set by E2E tokens; the exit check as written cannot pass. Not faked.
+ 2. Imported test admin needed default-roles-cce, otherwise the account console REST API returns 401 after sign-in (9.2 lists only SUPER_ADMIN).
+ 3. .env.example omits the console VITE_* values (they belong in cce-admin-ui/.env per AS-REQ-22).
+ 4. Health-check interval/timeout/retries not given; chose values.
+ 5. Keycloak DB user not given; used admin_service.
+ 6. token-claims.mjs .env location not given; reads ../.env relative to the script.
+Orchestrator re-verified: compose services healthy, ./mvnw verify exit 0, .env ignored.
+````
+

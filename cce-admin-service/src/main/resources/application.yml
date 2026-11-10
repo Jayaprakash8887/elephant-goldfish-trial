@@ -1,0 +1,12 @@
+spring:
+  application:
+    name: cce-admin-service
+server:
+  port: ${SERVER_PORT:8085}
+---
+# Outside the test profile, local values come from the git-ignored .env file (section 9.3).
+spring:
+  config:
+    activate:
+      on-profile: "!test"
+    import: optional:file:.env[.properties]
