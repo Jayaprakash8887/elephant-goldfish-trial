@@ -1,0 +1,4 @@
+# The test profile. The datasource comes from @ServiceConnection (DatabaseTestBase).
+spring:
+  jpa:
+    show-sql: false

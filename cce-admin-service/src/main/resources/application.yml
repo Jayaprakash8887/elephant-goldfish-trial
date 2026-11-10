@@ -1,6 +1,20 @@
 spring:
   application:
     name: cce-admin-service
+  datasource:
+    url: ${DATABASE_URL:}
+    username: ${DATABASE_USERNAME:}
+    password: ${DATABASE_PASSWORD:}
+    hikari:
+      connection-timeout: 2000
+  flyway:
+    baseline-on-migrate: true
+    baseline-version: 0
+    table: admin_service_flyway_history
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
 server:
   port: ${SERVER_PORT:8085}
 ---

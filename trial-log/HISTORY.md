@@ -2726,3 +2726,23 @@ DESIGN-GAPs:
 Orchestrator re-verified: compose services healthy, ./mvnw verify exit 0, .env ignored.
 ````
 
+### H-049 · 2026-11-10 16:08 UTC · orchestrator action · Implement admin-service phase 2 (schema, seed, persistence)
+
+- **Actor:** Orchestrator -> fresh implementation agent
+
+**Input** (what was asked or run):
+
+````text
+Fresh agent, same brief. Scope: Phase 2, schema, seed and persistence (B-01, B-02).
+````
+
+**Output** (what came back):
+
+````markdown
+Agent report (condensed): V1 schema (+ conditional api_permissions create), V2 shape check, V3 seed (12 menus, 2 system roles, 6 api_permissions rows); 7 entities, 5 enums, 7 repositories; test base with shared Testcontainers Postgres; migration tests (empty DB, existing gateway table baselined, mismatched shape fails) and repository tests.
+Exit check ./mvnw verify: 48 tests, 0 failures.
+DESIGN-GAP 1: names of PKs, FKs, other CHECKs and the append-only trigger function not specified; used Postgres defaults / fk_ / ck_ conventions.
+Other: one compile retry (AssertJ overload ambiguity in a test).
+Orchestrator re-ran ./mvnw verify: exit 0.
+````
+
