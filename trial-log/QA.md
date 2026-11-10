@@ -232,7 +232,62 @@ Generated from [HISTORY.md](HISTORY.md) by `trial-log/tools/qa.py`. Do not edit 
 > - Moving the pure helpers into PRD-named folders would put them where their names mislead, and would break the rule that components never import `hooks/`.
 > Record it in a deviations table, in the same form the admin-service design uses (PRD text, this design, why), so that it is raised with the team under PRD §11 together with the others. Then continue finalization.
 
-### Q11 · asked in H-033 (2026-11-10 13:43 UTC) · no question asked
+### Q11 · asked in H-033 (2026-11-10 13:43 UTC) · answered in H-037
+
+**EGM asked:**
+
+> (this reply asks no question)
+
+**Answer given:**
+
+> /egm:egm-resolve
+>
+> TargetFile: docs/designs/cce-admin-ui.md
+> LineRange: full file
+> FindingsList: the 30 consolidated actions A-01 to A-30 in egm/admin-ui/consolidated_review_report.md (the Goldfish review of this design).
+> EGM artifact directory: egm/admin-ui/
+>
+> The author's decisions on the items that need one:
+> - A-12: confirmed. Last write wins is an accepted risk, recorded in the A-01 risks table. The ETag follow-up (If-Match/412) is recorded on the admin-service design. The pre-save diff dialog is dropped. Reason: the race needs two administrators editing the same role's permissions within seconds, the audit log records both saves, and only a server-side version check closes the race.
+> - A-30:
+>   - Unsaved-changes guard: keep it, with the data router, and do not widen it.
+>   - Menu icon select: the ten seed icons plus the entry's current value (Stage 8).
+>   - Runtime /config.json: dropped.
+>   - Self-lockout warning: dropped. LAST_SYSTEM_ADMIN covers the catastrophic case.
+>   - Deployment topology: state that the console needs an origin that also routes /auth to Keycloak, or an image built with VITE_KEYCLOAK_URL set. Record the base-path alternative as rejected.
+>   - Guard coverage and a real-stack F-04 check: not expanded.
+> - Every other action: take it as the report proposes, following its Stage 8 triage.
+>
+> Contract changes the author has just decided on the admin-service design. Its resolver is applying them to docs/designs/cce-admin-service.md now. Align the console with them:
+> - POST /users links an existing enabled Keycloak account that matches both username and email and has no local row, instead of returning 409. The response is unchanged.
+> - POST /roles: a failed sync after create returns 201 with the warning ROLE_SYNC_FAILED instead of 502. POST /roles also returns 409 when a realm role with that name already exists in Keycloak.
+> - DELETE /roles/:id no longer syncs, so there is no 502 ROLE_DELETE. Remove that operation from the console's notice table.
+> - syncStatus changes only for the role whose sync ran. There is no fan-out marking.
+> - A POST /users 502 never leaves a local user (your A-04).
+> - The service's own permission check stays, in a simpler form, so a 403 for "role lacks permission" can also come from the service locally.
+> Once the admin-service resolve is finished, I will ask you to re-check the console against the resolved file for exact names and codes. Until then, use the names above.
+>
+> After you write goldfish_review_report.md, present the resolution gate as the skill says. List any CONTEST or ESCALATE item first, with a one-line reason each.
+
+### Q12 · asked in H-037 (2026-11-10 14:26 UTC) · answered in H-038
+
+**EGM asked:**
+
+> (this reply asks no question)
+
+**Answer given:**
+
+> auto accept
+>
+> Apply all proposed fixes and the K-1 to K-6 alignments to docs/designs/cce-admin-ui.md. Your two choices are accepted: the 500-role limit with dedupe and a notice, and DUPLICATE_ROLE_NAME for the 409 when a Keycloak realm role with that name already exists. The admin-service resolver uses exactly that code.
+>
+> The admin-service resolver reported two more contract details. Apply them too:
+> 1. Null fields. Only the optional envelope fields (pagination, warnings, details, partialState) are left out when absent. Every other response field is always present, written as null when it has no value. Type contract.ts that way: , not .
+> 2. On a USER_CREATE 502, partialState.entityId is always the id the user will have. Keep A-04's rule: do not link to it, because no local user exists until the request is submitted again and links the account.
+>
+> Then mark the report resolved, as the skill's Step 5 says.
+
+### Q13 · asked in H-038 (2026-11-10 14:37 UTC) · no question asked
 
 **EGM asked:**
 
@@ -605,7 +660,70 @@ Generated from [HISTORY.md](HISTORY.md) by `trial-log/tools/qa.py`. Do not edit 
 >
 > The four weak points are accepted: phase 4's size; phase 3's exit check expecting 403 before the bootstrapper exists; the stand-in's separate verify command; and the audit guard test in place of a coverage figure.
 
-### Q17 · asked in H-032 (2026-11-10 13:42 UTC) · no question asked
+### Q17 · asked in H-032 (2026-11-10 13:42 UTC) · answered in H-036
+
+**EGM asked:**
+
+> (this reply asks no question)
+
+**Answer given:**
+
+> /egm:egm-resolve
+>
+> TargetFile: docs/designs/cce-admin-service.md
+> LineRange: full file
+> FindingsList: the 33 consolidated actions CA-01 to CA-33 in egm/admin-service/consolidated_review_report.md (the Goldfish review of this design), plus the five "Items for the admin-service design" at the end of egm/admin-ui/consolidated_review_report.md (the review of the console design).
+> EGM artifact directory: egm/admin-service/
+>
+> The author's decisions on the actions that reopen recorded decisions. Treat these as decided; do not escalate them again:
+> - CA-01 (Blocker): take Stage 8's single mechanism. In 5.1 step 3, link an enabled Keycloak account that matches both username and email exactly and has no local row, instead of returning 409; the bootstrapper calls the same method; adopting unowned names such as INSIGHTS_READ is a Non-Goal with an open question under GW-5; no new endpoints, no account tagging. Add a rollout note: before cce-insights-ui switches its sidebar to /me/menus, existing console users must be onboarded through POST /users, which links their accounts.
+> - CA-04: take the single audit rule. Remove the sync from role delete (reopens AD-12). Role create still writes the implicit rows and attempts the sync, but a failed sync returns 201 with the warning ROLE_SYNC_FAILED instead of 502 (reopens AD-16). Add the DEV row for B-50 and the expected action/outcome pairs in the Phase 5 exit check.
+> - CA-05: delete AD-15 step (4). 9.5 step 3 creates the SUPER_ADMIN realm role by hand next to CCE_ADMIN_SERVICE (the realm import does it locally); if it is missing the bootstrapper logs an error and stops. Add the KeycloakUserInfo fields and the refusal test. Mark the GW-6 chain provisional.
+> - CA-07: option (b), the minimal check: AntPathMatcher, one indexed query per request with no snapshot and no TTL, the boolean switch, a stand-in that only checks a bearer token is present, and no offline row check. `**` only as the last segment; T8 rejected. Keep the live hard-control E2E (a console user gets 403 on GET /users); it is the only local evidence that the PRD's hard control works. Reason for (b) over (a): defence in depth on the API that grants access, at a small fixed cost.
+> - CA-08: take it, with one change: GW-2 is a go/no-go before the first shared environment, not before local Phases 4 and 5. Locally the stand-in defines the behaviour.
+> - CA-09: take Z8-5 (sync_status only for the role that asked; remove the ROLE scope and the fan-out marking).
+> - CA-10: take it (narrows AD-02).
+> - CA-11: take it. Record the interaction with CA-04 as a risk: a deleted role's name stays unusable until a sync removes its realm role, which depends on GW-4.
+> - CA-14: take it, using Spring's native forwarded-header support with configured trusted proxies, and drop AUDIT_TRUST_FORWARDED_FOR.
+> - Every other action, and the five console items: take them as the reports propose, following Stage 8's direction wherever stages conflict. For the console's item 5 (AD-03 adds three sidebar links), keep AD-03 and add a rollout/risk row saying roles granted those menus will show three more links than today's sidebar. For item 3 (If-Match/412), record it as a follow-up, not as work in this design.
+>
+> After you write goldfish_review_report.md, present the resolution gate as the skill says. Any finding you categorize as CONTEST or ESCALATE should be listed first, with a one-line reason each.
+
+### Q18 · asked in H-036 (2026-11-10 14:26 UTC) · answered in H-039
+
+**EGM asked:**
+
+> How would you like to proceed?
+>
+> - **Comment directly on the file**: review `goldfish_review_report.md` here in chat or in the file, and leave comments or edits to approve, reject, or contest specific items.
+> - **Auto accept**: reply "auto accept" to apply all proposed fixes in one batch (contested items would be skipped; there are none).
+> - **Continue to next phase**: reply "continue" or "no changes" to go on without applying fixes.
+> - **Interactive breakdown**: reply "interactive breakdown" to go through the findings one at a time in chat, with an explanation of each proposed edit.
+> - **Custom instruction / Wildcard request**: reply with any other instruction, question, or out-of-band request.
+
+**Answer given:**
+
+> auto accept
+>
+> Apply all 39 proposed fixes to docs/designs/cce-admin-service.md and keep egm/admin-service/design_draft.md identical to it. Then mark the report resolved, as the skill's Step 5 says. In your reply, list the contract changes to §4 and §9.3 exactly as they now read, so that they can be passed to the console session.
+
+### Q19 · asked in H-039 (2026-11-10 14:40 UTC) · no question asked
+
+**EGM asked:**
+
+> (this reply asks no question)
+
+## Session `d157201e`: Review admin-ui: /egm:egm-review (uninterrupted, all five stages)
+
+### Q1 · asked in H-034 (2026-11-10 14:20 UTC) · no question asked
+
+**EGM asked:**
+
+> (this reply asks no question)
+
+## Session `8a09292b`: Review admin-service: /egm:egm-review (uninterrupted, all five stages)
+
+### Q1 · asked in H-035 (2026-11-10 14:21 UTC) · no question asked
 
 **EGM asked:**
 

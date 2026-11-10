@@ -1845,3 +1845,435 @@ Next, review it with the six fresh-context reviewers:
 Running it after the admin-service review, or alongside it, lets the reviewers check the console against the contract it mirrors.
 ````
 
+### H-034 · 2026-11-10 14:20 UTC · EGM session turn · Review admin-ui: /egm:egm-review (uninterrupted, all five stages)
+
+- **Session:** `d157201e-52e0-48d8-9b8a-14dd6040318f` (new)
+- **Took:** 36.1 min · 4 model turns · est. $17.60 · output tokens 29,913
+- **Ran:** Claude Code 2.1.319 (Claude Code) headless, model `claude-opus-5-5`, effort `high`, permission mode `acceptEdits`
+- **Result:** ok
+- **Files changed:** `egm/admin-ui/comprehension_report.md` (added), `egm/admin-ui/consolidated_review_report.md` (added), `egm/admin-ui/critic_report.md` (added), `egm/admin-ui/implementation_readiness_report.md` (added), `egm/admin-ui/intermediate_zoom_out_report.md` (added), `egm/admin-ui/zoom_out_report.md` (added)
+
+**Input** (sent by the orchestrating Claude session):
+
+````text
+/egm:egm-review docs/designs/cce-admin-ui.md uninterrupted
+
+EGM artifact directory: egm/admin-ui/
+
+Proceed with no additional GoldfishContext. Use only the files the design links to inside this folder, which are added automatically. They include docs/designs/cce-admin-service.md, the API contract this console mirrors, so check the console against it. Leave out any link that is a URL or resolves outside this folder. Nobody is available to approve those in this run.
+````
+
+**Output** (final reply of the headless session):
+
+````markdown
+The review of `docs/designs/cce-admin-ui.md` has finished all five stages. Its verdict is that the design is not ready to implement as written; this run changed nothing in the design itself. Everything is merged into `egm/admin-ui/consolidated_review_report.md`: 30 action items, each traced back to the stage findings it came from.
+
+**What's wrong:**
+- **The console–backend match holds.** Endpoints, fields, error codes and partial-failure operations all agree with `cce-admin-service.md`, at both design and plan level.
+- **Blocker (A-01):** there is no risks section, which the review standard requires. It's a small fix: gather risk text that is already in the doc into one table of about six rows. The intermediate zoom-out reviewer argued it should only be Major.
+- **Feature section (A-02 to A-15):** the problems are in what the console says and offers after failures:
+  - after a 502, a timeout, a gateway 403 or a repeated 401;
+  - the role-picker hint and CUJ 4's precondition, which assume the backend refuses more than it does;
+  - claims that say more than the design delivers: Goal 6 drift protection, "approved", end-to-end coverage, and the ESLint layer rules.
+- **Implementation plan (A-16 to A-25):** it can't be followed step by step.
+  - Step 1's check can't pass.
+  - The F1 file range is wrong.
+  - The four ESLint layer rules overwrite each other in flat config, so they are silently not enforced.
+  - `playwright.config.ts` fails lint, which also fails the Docker `verify` stage.
+  - Several screens, the `api/` return types and the PRD §11 test coverage leave decisions to whoever implements it.
+
+**How I filtered the fixes:** applied as written, the earlier fixes would add about a dozen mechanisms and need four contract changes. The intermediate zoom-out stage pushed back, and I followed its triage, so most items now delete or reword text. One trade-off is yours to confirm in A-12: dropping the check before saving permissions accepts that the last save wins on a security control.
+
+**Six items belong in the admin-service design, not this one.** They're listed in the report. One is real: its lines 550-551 contradict its own create-user flow (§5.1), and that's why the console offers a link to a user that never exists.
+
+**Two departures from the standard EGM flow:**
+- The Stage 9 synthesizer returned before its reviewers finished, so I compiled `implementation_readiness_report.md` myself from their three reports. I spot-checked the plan lines it cites.
+- The intermediate zoom-out reviewer read `cce-admin-service.md` only in part (lines 1-860 and 995-1363).
+
+I didn't touch `trial-log/`, as CLAUDE.md says. Recording this run in JOURNAL, HISTORY and QA is still to do. To act on the items, the next step is `egm-resolve`: A-01 to A-15 and A-26 to A-28 cover the feature section, and A-16 to A-25 and A-29 cover the plan. A-30 needs your decisions first.
+
+Files are in `egm/admin-ui/`:
+- consolidated_review_report.md
+- zoom_out_report.md
+- comprehension_report.md
+- critic_report.md
+- intermediate_zoom_out_report.md
+- implementation_readiness_report.md
+````
+
+### H-035 · 2026-11-10 14:21 UTC · EGM session turn · Review admin-service: /egm:egm-review (uninterrupted, all five stages)
+
+- **Session:** `8a09292b-22e7-4598-84a1-fd9bb20cfa67` (new)
+- **Took:** 37.9 min · 31 model turns · est. $16.02 · output tokens 40,175
+- **Ran:** Claude Code 2.1.319 (Claude Code) headless, model `claude-opus-5-5`, effort `high`, permission mode `acceptEdits`
+- **Result:** ok
+- **Files changed:** `egm/admin-service/comprehension_report.md` (added), `egm/admin-service/consolidated_review_report.md` (added), `egm/admin-service/critic_report.md` (added), `egm/admin-service/implementation_readiness_report.md` (added), `egm/admin-service/intermediate_zoom_out_report.md` (added), `egm/admin-service/zoom_out_report.md` (added), `docs/designs/SITEMAP.md` (changed), `docs/designs/cce-admin-ui.md` (changed)
+
+**Input** (sent by the orchestrating Claude session):
+
+````text
+/egm:egm-review docs/designs/cce-admin-service.md uninterrupted
+
+EGM artifact directory: egm/admin-service/
+
+Proceed with no additional GoldfishContext. Use only the files the design links to inside this folder, which are added automatically. Leave out any link that is a URL or resolves outside this folder. Nobody is available to approve those in this run.
+````
+
+**Output** (final reply of the headless session):
+
+````markdown
+The review ran all five stages without stopping. The consolidated report is at `egm/admin-service/consolidated_review_report.md`. I did not edit the design doc, did not touch `trial-log/` and did not commit anything.
+
+**What it found:** the five stages raised 145 findings, which merge into 33 actions: 3 Blockers, 24 Majors and 6 Nits. Every reviewer completed without a retry.
+
+**Blockers:**
+1. **Existing users are locked out.** People already in Keycloak (every current cce-insights-ui user) have no local row, so they would get 403 from `/me/menus`. `POST /users` also refuses their existing usernames, so a user creation that fails partway can't be retried.
+2. **Tests have no configuration.** `./mvnw verify` fails on a clean checkout. On a machine with `.env`, the tests pick up the real local values instead.
+3. **The gateway test fixture can't be copied.** The plan says to copy its trigger and index DDL from the gateway migration doc, but that doc only describes them in prose, so the implementer would have to invent them.
+
+I checked these claims against the source files myself, and they hold:
+- The gateway doc says at line 8 that permissions update without a restart, and at line 187 that a restart is needed.
+- The first-deploy runbook (section 9.5) asks for a gateway restart at step 6, after a migration that only runs at step 7.
+- Line 1542 says there are nine `/roles` endpoints; section 4.5 lists ten.
+- Lines 41 and 230 link the scratch draft `egm/admin-ui/design_draft.md` instead of `docs/designs/cce-admin-ui.md`. That file currently has uncommitted edits, so check it once it is final.
+
+**Decision for you:** the stages disagree on direction. Stages 5 and 7 would add mechanisms: new endpoints, tagging Keycloak accounts, background re-sync, drift detection, a shadow mode, time budgets. Stage 8 argues that most problems come from mechanisms the design already adds beyond the PRD, and that cutting them is the better fix. The report recommends following Stage 8.
+
+Five actions would reverse or narrow your recorded decisions, so they are yours to make, not a resolver's: AD-12, AD-15, AD-16, AD-17 and AD-02. AD-06 would also change. Settle these first, because they decide how much of the implementation-plan work is still needed; for example, dropping AD-17's own permission check removes six of those findings.
+
+Files are in `egm/admin-service/`:
+- consolidated_review_report.md
+- zoom_out_report.md
+- comprehension_report.md
+- critic_report.md
+- intermediate_zoom_out_report.md
+- implementation_readiness_report.md
+````
+
+### H-036 · 2026-11-10 14:26 UTC · EGM session turn · Resolve admin-service, turn 1: /egm:egm-resolve on 33 actions + 5 console items, with author decisions
+
+- **Session:** `d8132724-9fe1-46b3-8537-799ad75e43bb` (resumed)
+- **Answers:** the question at the end of H-032 (see [QA.md](QA.md))
+- **Took:** 3.2 min · 6 model turns · est. $11.37 · output tokens 23,308
+- **Ran:** Claude Code 2.1.319 (Claude Code) headless, model `claude-opus-5-5`, effort `high`, permission mode `acceptEdits`
+- **Result:** ok
+- **Files changed:** `egm/admin-service/goldfish_review_report.md` (added)
+
+**Input** (sent by the orchestrating Claude session):
+
+````text
+/egm:egm-resolve
+
+TargetFile: docs/designs/cce-admin-service.md
+LineRange: full file
+FindingsList: the 33 consolidated actions CA-01 to CA-33 in egm/admin-service/consolidated_review_report.md (the Goldfish review of this design), plus the five "Items for the admin-service design" at the end of egm/admin-ui/consolidated_review_report.md (the review of the console design).
+EGM artifact directory: egm/admin-service/
+
+The author's decisions on the actions that reopen recorded decisions. Treat these as decided; do not escalate them again:
+- CA-01 (Blocker): take Stage 8's single mechanism. In 5.1 step 3, link an enabled Keycloak account that matches both username and email exactly and has no local row, instead of returning 409; the bootstrapper calls the same method; adopting unowned names such as INSIGHTS_READ is a Non-Goal with an open question under GW-5; no new endpoints, no account tagging. Add a rollout note: before cce-insights-ui switches its sidebar to /me/menus, existing console users must be onboarded through POST /users, which links their accounts.
+- CA-04: take the single audit rule. Remove the sync from role delete (reopens AD-12). Role create still writes the implicit rows and attempts the sync, but a failed sync returns 201 with the warning ROLE_SYNC_FAILED instead of 502 (reopens AD-16). Add the DEV row for B-50 and the expected action/outcome pairs in the Phase 5 exit check.
+- CA-05: delete AD-15 step (4). 9.5 step 3 creates the SUPER_ADMIN realm role by hand next to CCE_ADMIN_SERVICE (the realm import does it locally); if it is missing the bootstrapper logs an error and stops. Add the KeycloakUserInfo fields and the refusal test. Mark the GW-6 chain provisional.
+- CA-07: option (b), the minimal check: AntPathMatcher, one indexed query per request with no snapshot and no TTL, the boolean switch, a stand-in that only checks a bearer token is present, and no offline row check. `**` only as the last segment; T8 rejected. Keep the live hard-control E2E (a console user gets 403 on GET /users); it is the only local evidence that the PRD's hard control works. Reason for (b) over (a): defence in depth on the API that grants access, at a small fixed cost.
+- CA-08: take it, with one change: GW-2 is a go/no-go before the first shared environment, not before local Phases 4 and 5. Locally the stand-in defines the behaviour.
+- CA-09: take Z8-5 (sync_status only for the role that asked; remove the ROLE scope and the fan-out marking).
+- CA-10: take it (narrows AD-02).
+- CA-11: take it. Record the interaction with CA-04 as a risk: a deleted role's name stays unusable until a sync removes its realm role, which depends on GW-4.
+- CA-14: take it, using Spring's native forwarded-header support with configured trusted proxies, and drop AUDIT_TRUST_FORWARDED_FOR.
+- Every other action, and the five console items: take them as the reports propose, following Stage 8's direction wherever stages conflict. For the console's item 5 (AD-03 adds three sidebar links), keep AD-03 and add a rollout/risk row saying roles granted those menus will show three more links than today's sidebar. For item 3 (If-Match/412), record it as a follow-up, not as work in this design.
+
+After you write goldfish_review_report.md, present the resolution gate as the skill says. Any finding you categorize as CONTEST or ESCALATE should be listed first, with a one-line reason each.
+````
+
+**Output** (final reply of the headless session):
+
+````markdown
+I've put the review findings into [`goldfish_review_report.md`](/home/jayaprakashn/Documents/workspace/elephant-goldfish-trial/egm/admin-service/goldfish_review_report.md). It covers 39 findings: CA-01 to CA-33, plus six items the console review raised for this design (UI-1 to UI-6). You mentioned five, but the console report lists six. The sixth, UI-6, is a new gateway question about what the gateway's own 401 and 403 responses contain, and I've included it.
+
+**CONTEST or ESCALATE:** none. I checked every finding against the files the reviewers had, and none misreads the design or depends on knowledge outside those files. All 39 are PROPOSE FIX, with your decisions on CA-01, 04, 05, 07, 08, 09, 10, 11 and 14 written into the edits. UI-1 and UI-4 are fixed by the same edits as CA-12 and CA-14. UI-3 becomes a Future Improvements entry, and UI-5 a Risks row.
+
+**Changes to §4 and §9.3 that the console session needs to know about:**
+- **Error envelope:** the `PARTIAL_FAILURE` outcome is removed, and only `FAILED` remains.
+- **`partialState` operations:** `ROLE_CREATE` and `ROLE_DELETE` are removed from the table.
+- **`POST /roles`:**
+  - It returns 201 with a new `ROLE_SYNC_FAILED` warning when the sync fails, instead of 502.
+  - It also returns 409 `DUPLICATE_ROLE_NAME` when the name already exists as a Keycloak realm role.
+- **`DELETE /roles/:id`:** no gateway sync, so no 502.
+- **`POST /users`:**
+  - It links an enabled Keycloak-only account when both the username and the email match.
+  - `entityId` on a 502 is always the id the user will get.
+  - The 409 message for a Keycloak-only conflict is clearer.
+- **Null fields:** only the optional envelope fields are left out when null. Every other field is always written, null included.
+- **§9.3 and §9.4:**
+  - `AUDIT_TRUST_FORWARDED_FOR` is replaced by `TRUSTED_PROXIES`.
+  - `GATEWAY_SYNC_SCOPE` and `PERMISSION_CACHE_TTL` are removed.
+  - The Flyway history table is renamed to `admin_service_flyway_history`.
+  - The local URLs and console values are unchanged.
+
+How would you like to proceed?
+
+- **Comment directly on the file**: review `goldfish_review_report.md` here in chat or in the file, and leave comments or edits to approve, reject, or contest specific items.
+- **Auto accept**: reply "auto accept" to apply all proposed fixes in one batch (contested items would be skipped; there are none).
+- **Continue to next phase**: reply "continue" or "no changes" to go on without applying fixes.
+- **Interactive breakdown**: reply "interactive breakdown" to go through the findings one at a time in chat, with an explanation of each proposed edit.
+- **Custom instruction / Wildcard request**: reply with any other instruction, question, or out-of-band request.
+````
+
+### H-037 · 2026-11-10 14:26 UTC · EGM session turn · Resolve admin-ui, turn 1: /egm:egm-resolve on 30 actions, with author decisions and backend contract changes
+
+- **Session:** `02eb6e8f-75ce-4bca-bef2-98c5fc29ddf1` (resumed)
+- **Answers:** the question at the end of H-033 (see [QA.md](QA.md))
+- **Took:** 3.1 min · 5 model turns · est. $10.22 · output tokens 21,793
+- **Ran:** Claude Code 2.1.319 (Claude Code) headless, model `claude-opus-5-5`, effort `high`, permission mode `acceptEdits`
+- **Result:** ok
+- **Files changed:** `egm/admin-ui/goldfish_review_report.md` (added)
+
+**Input** (sent by the orchestrating Claude session):
+
+````text
+/egm:egm-resolve
+
+TargetFile: docs/designs/cce-admin-ui.md
+LineRange: full file
+FindingsList: the 30 consolidated actions A-01 to A-30 in egm/admin-ui/consolidated_review_report.md (the Goldfish review of this design).
+EGM artifact directory: egm/admin-ui/
+
+The author's decisions on the items that need one:
+- A-12: confirmed. Last write wins is an accepted risk, recorded in the A-01 risks table. The ETag follow-up (If-Match/412) is recorded on the admin-service design. The pre-save diff dialog is dropped. Reason: the race needs two administrators editing the same role's permissions within seconds, the audit log records both saves, and only a server-side version check closes the race.
+- A-30:
+  - Unsaved-changes guard: keep it, with the data router, and do not widen it.
+  - Menu icon select: the ten seed icons plus the entry's current value (Stage 8).
+  - Runtime /config.json: dropped.
+  - Self-lockout warning: dropped. LAST_SYSTEM_ADMIN covers the catastrophic case.
+  - Deployment topology: state that the console needs an origin that also routes /auth to Keycloak, or an image built with VITE_KEYCLOAK_URL set. Record the base-path alternative as rejected.
+  - Guard coverage and a real-stack F-04 check: not expanded.
+- Every other action: take it as the report proposes, following its Stage 8 triage.
+
+Contract changes the author has just decided on the admin-service design. Its resolver is applying them to docs/designs/cce-admin-service.md now. Align the console with them:
+- POST /users links an existing enabled Keycloak account that matches both username and email and has no local row, instead of returning 409. The response is unchanged.
+- POST /roles: a failed sync after create returns 201 with the warning ROLE_SYNC_FAILED instead of 502. POST /roles also returns 409 when a realm role with that name already exists in Keycloak.
+- DELETE /roles/:id no longer syncs, so there is no 502 ROLE_DELETE. Remove that operation from the console's notice table.
+- syncStatus changes only for the role whose sync ran. There is no fan-out marking.
+- A POST /users 502 never leaves a local user (your A-04).
+- The service's own permission check stays, in a simpler form, so a 403 for "role lacks permission" can also come from the service locally.
+Once the admin-service resolve is finished, I will ask you to re-check the console against the resolved file for exact names and codes. Until then, use the names above.
+
+After you write goldfish_review_report.md, present the resolution gate as the skill says. List any CONTEST or ESCALATE item first, with a one-line reason each.
+````
+
+**Output** (final reply of the headless session):
+
+````markdown
+**No CONTEST or ESCALATE items.** I found no finding I could dispute with evidence the reviewers could read. Two of your contract changes alter how I'll apply findings:
+- **A-21:** with no `ROLE_DELETE` 502 any more, that test case is dropped. Only `ROLE_IN_USE` is tested for delete.
+- **A-05:** the `SyncFailedNotice` table shrinks to seven operations, because the `ROLE_CREATE` and `ROLE_DELETE` rows go.
+
+**Things to check while reviewing:**
+- **A-17 (lint):** the plan now proves each import rule fires. A fixture folder holds one bad import per rule, and a Vitest case runs ESLint on it and expects the error.
+- **A-22 (browser tests):** credentials come only from the environment. That reverses the earlier `../cce-admin-service/.env` fallback, and Mailpit is removed from CUJ 2 as the report proposes.
+- **A-27 (renumbering):** CUJs are renumbered to match the admin-service design (S4, S5, S6), so the e2e spec names change too.
+- **A-01 (risks):** the role-count risk row sets a limit of 500 roles (five pages), with dedupe by id and a notice when the limit is reached. The report suggested 100, so the exact number is a choice of mine.
+- **K-2 (contract):** I assumed `DUPLICATE_ROLE_NAME` for the new 409 when a realm role with that name already exists in Keycloak. That code is marked for your re-check against the resolved admin-service file.
+
+I have compiled the audit findings into [goldfish_review_report.md](egm/admin-ui/goldfish_review_report.md): 30 PROPOSE FIX, with no CONTEST, ESCALATE or DECLINE, plus the six author-directed contract alignments K-1 to K-6. Please review the findings there and choose how you would like to proceed:
+
+- **Comment directly on the file**: review `goldfish_review_report.md` in chat or in the file, and leave comments or edits to approve, reject or contest specific items.
+- **Auto accept**: reply "auto accept" to batch-apply all proposed fixes (skipping contested items).
+- **Continue to next phase**: reply "continue" or "no changes" to go on without applying fixes.
+- **Interactive breakdown**: reply "interactive breakdown" for a guided, item-by-item walkthrough in chat, with detailed explanations for each proposed edit or contested finding before you decide.
+- **Custom instruction / Wildcard request**: reply with any custom instruction, question or out-of-band request.
+````
+
+### H-038 · 2026-11-10 14:37 UTC · EGM session turn · Resolve admin-ui, turn 2: auto accept (30 + K-1..K-6), plus two late contract notes
+
+- **Session:** `02eb6e8f-75ce-4bca-bef2-98c5fc29ddf1` (resumed)
+- **Answers:** the question at the end of H-037 (see [QA.md](QA.md))
+- **Took:** 9.9 min · 16 model turns · est. $13.47 · output tokens 75,685
+- **Ran:** Claude Code 2.1.319 (Claude Code) headless, model `claude-opus-5-5`, effort `high`, permission mode `acceptEdits`
+- **Result:** ok
+- **Files changed:** `docs/designs/cce-admin-service.md` (changed), `docs/designs/cce-admin-ui.md` (changed), `egm/admin-ui/goldfish_review_report.md` (changed)
+
+**Input** (sent by the orchestrating Claude session):
+
+````text
+auto accept
+
+Apply all proposed fixes and the K-1 to K-6 alignments to docs/designs/cce-admin-ui.md. Your two choices are accepted: the 500-role limit with dedupe and a notice, and DUPLICATE_ROLE_NAME for the 409 when a Keycloak realm role with that name already exists. The admin-service resolver uses exactly that code.
+
+The admin-service resolver reported two more contract details. Apply them too:
+1. Null fields. Only the optional envelope fields (pagination, warnings, details, partialState) are left out when absent. Every other response field is always present, written as null when it has no value. Type contract.ts that way: , not .
+2. On a USER_CREATE 502, partialState.entityId is always the id the user will have. Keep A-04's rule: do not link to it, because no local user exists until the request is submitted again and links the account.
+
+Then mark the report resolved, as the skill's Step 5 says.
+````
+
+**Output** (final reply of the headless session):
+
+````markdown
+I applied all 30 review fixes, the K-1 to K-6 contract alignments and the two new contract details to [docs/designs/cce-admin-ui.md](docs/designs/cce-admin-ui.md), and marked [goldfish_review_report.md](egm/admin-ui/goldfish_review_report.md) resolved. I checked that every link resolves and that both code blocks are closed; nothing has been built yet, so the plan's own checks haven't run.
+
+**Count:** 30 fixes accepted and applied, plus 6 alignments. None contested, escalated, declined or left open.
+
+**Where the design changed most:**
+- **Structure:**
+  - There is a new "Author Decisions in This Design" table, UI-AD-01 to UI-AD-20, and every rejected alternative links its row.
+  - Open Questions now holds only GW-2 and the question about the gateway's error bodies.
+  - The AS-REQ table is replaced by a link to admin-service §4.6.
+  - There is a "Risks accepted by the author" table with 8 rows, and a Performance requirement.
+  - Each screen has its own heading, and CUJ 4 to 6 now match S4 to S6.
+- **Behaviour:**
+  - One refetch rule replaces the invalidation table.
+  - A response that isn't in the service's error format is classified by its HTTP status.
+  - A second 401 after a successful token refresh shows an inline error instead of a sign-in redirect loop.
+  - `SyncFailedNotice` follows one rule when `completedSteps` is empty, and its table now covers seven operations, without `ROLE_CREATE` or `ROLE_DELETE`.
+  - Delete is gone from Role detail.
+  - The MSW mocks are canned fixtures that record each request, instead of a store that imitates the service.
+  - Caddy now sends a Content-Security-Policy, and the container refuses to start without `GATEWAY_UPSTREAM`.
+- **Plan:**
+  - Each build step lists its exact files and ends with lint, build and tests.
+  - The ESLint rules are in file groups that don't override each other, and a test proves each rule fires.
+  - Start-up moves into `bootstrap.tsx`, with its own tests.
+  - Every `api/` function has a full signature.
+  - The browser tests are settled in detail: credentials come only from the environment, and there is no Mailpit check.
+
+**One change you should look at:** K-1 changes what happens after a `USER_CREATE` 502 with completed steps. Before, the form was locked so the admin couldn't create a second Keycloak account. Now the notice tells the admin to submit again with the same username and email, so the service links the existing account. The form stays usable. That follows your K-1 contract change, but it reverses a lock you approved earlier.
+
+**About your null-fields instruction:** the type examples in your message came through empty. I took the rule to mean that a response field with no value is typed `T | null`, never `T?`. That now applies to every response field, including `Warning.menuId` and `parentMenuId`. Request bodies keep the optional fields marked `?` in admin-service §4.5.
+
+**Waiting on the admin-service re-check:** the exact `PartialStateOperation` list, the `ROLE_SYNC_FAILED` warning code, and the anchors I link to in the admin-service design. The anchors are §4.4, §5, §8 and AD-11.
+````
+
+### H-039 · 2026-11-10 14:40 UTC · EGM session turn · Resolve admin-service, turn 2: auto accept (39 PROPOSE FIX)
+
+- **Session:** `d8132724-9fe1-46b3-8537-799ad75e43bb` (resumed)
+- **Answers:** the question at the end of H-036 (see [QA.md](QA.md))
+- **Took:** 13.2 min · 18 model turns · est. $16.21 · output tokens 100,970
+- **Ran:** Claude Code 2.1.319 (Claude Code) headless, model `claude-opus-5-5`, effort `high`, permission mode `acceptEdits`
+- **Result:** ok
+- **Files changed:** `docs/designs/cce-admin-service.md` (changed), `docs/designs/cce-admin-ui.md` (changed), `egm/admin-service/design_draft.md` (changed), `egm/admin-service/goldfish_review_report.md` (changed)
+
+**Input** (sent by the orchestrating Claude session):
+
+````text
+auto accept
+
+Apply all 39 proposed fixes to docs/designs/cce-admin-service.md and keep egm/admin-service/design_draft.md identical to it. Then mark the report resolved, as the skill's Step 5 says. In your reply, list the contract changes to §4 and §9.3 exactly as they now read, so that they can be passed to the console session.
+````
+
+**Output** (final reply of the headless session):
+
+````markdown
+All 39 fixes are applied to `docs/designs/cce-admin-service.md`, and `egm/admin-service/design_draft.md` is byte-identical to it. `goldfish_review_report.md` is marked `Status: resolved`: 39 accepted, 0 contested, 0 escalated, 0 declined, 0 left unaddressed. The document's relative links all resolve, and no mention of the removed mechanisms is left.
+
+**Two places where the result differs from the review report's wording:**
+- **CA-04's row count.** You kept the sync attempt on role create, so `POST /roles` writes two rows (`ROLE_CREATED` and `ROLE_SYNC_REQUESTED`), just as a permission save does. The report's claim that the permission save is "the only call that writes two rows" therefore doesn't hold. §8 and DEV-7 say "two rows each".
+- **CA-01's bootstrapper.** The bootstrapper knows only a username, so it reuses the *linking method* (5.1 steps 5 and 6, `AccountLinker`), not the lookup that needs both username and email.
+
+**Next step:** the consolidated report recommends running Stages 7 and 9 again.
+
+## Contract changes for the console session
+
+Anchors the console links to are unchanged: §3, §4, §4.6 and §9.3.
+
+**Behaviour changes the console must act on:**
+- **AS-REQ-06:** after a `USER_CREATE` 502, submitting the same request again now completes the creation. The console currently locks resubmission once steps have completed.
+- **`partialState`:** `ROLE_CREATE` and `ROLE_DELETE` are no longer operations.
+- **`POST /roles`:** a failed first sync returns 201 with the warning `ROLE_SYNC_FAILED`, not 502.
+- **`DELETE /roles/:id`:** it can no longer return 502.
+
+### §4.1 Conventions
+New bullets:
+> *   **Strings.** Every request string is trimmed before it is validated, and lengths are counted after trimming. An optional string that is empty after trimming is treated as null.
+> *   **Null fields.** Only four optional fields are left out of a response when they have no value: `pagination`, `warnings`, `details` and `partialState`. Every other field is always written, as `null` when it has no value.
+
+Warning table (one row changed, one row new):
+
+| Warning code | Returned by | Reference fields |
+|---|---|---|
+| `ACTION_EMAIL_NOT_SENT` | `POST /users`, when the user was created or linked but the set-password email could not be sent (AD-08) | none (the user is in `data`) |
+| `ROLE_SYNC_FAILED` | `POST /roles`, when the role was created but its first gateway sync failed (AD-16). The role's `syncStatus` is `FAILED`. Use Re-sync before assigning it. | none (the role is in `data`) |
+
+Concurrent edits now ends with:
+> Optimistic concurrency is a noted follow-up (Future Improvements).
+
+### §4.2 Error codes
+Changed rows:
+
+| HTTP | Code | When |
+|---|---|---|
+| 409 | `EMAIL_IN_USE` | Another local user has this email, or a Keycloak account that cannot be linked has it (section 5.1). In the Keycloak case the message says that the address belongs to a Keycloak account with no local user that cannot be linked, and why. |
+| 409 | `USERNAME_IN_USE` *(added)* | As `EMAIL_IN_USE`, for the username. Needed because username and email are separate fields. |
+| 409 | `DUPLICATE_ROLE_NAME` | A role with this name exists, or `api_permissions` already has rows with this `permission_name`, or a Keycloak realm role with this name exists (section 5.6). |
+| 409 | `ROLE_IN_USE` | Delete of a role that a local user (of any status) or a Keycloak user holds. |
+| 502 | `KEYCLOAK_SYNC_FAILED` | A call to Keycloak or to the gateway sync failed. The state may be partially applied. Carries `partialState`. Also used when the failure came before anything changed (DEV-8). |
+
+`PartialState`: `entityId` is no longer nullable.
+> `{ "operation": string, "entityId": uuid, "failedStep": string, "completedSteps": [string], "keycloakUserId": uuid | null, "auditLogId": uuid | null }`
+> *   `entityId` is the id of the user or role concerned. For `POST /users` it is the id the new user gets: the service assigns it before the first step, and a 502 on `POST /users` always comes before the local row exists.
+> *   `auditLogId` follows the single audit rule (section 8): it is the id of the row that records the failure, or `null` when nothing was written.
+
+The operations table now has seven rows. `ROLE_CREATE` and `ROLE_DELETE` are removed, and these rows changed:
+
+| `operation` | Endpoint | Where the console shows it | What is saved, and the next step |
+|---|---|---|---|
+| `USER_CREATE` | `POST /users` | User create form | The Keycloak account may exist without a local row. Submit the same request again: the account is linked and the flow completes (section 5.1). |
+| `USER_PROFILE_UPDATE` | `PUT /users/:id` | User edit form, profile section | Keycloak may hold the new values and the local row the old ones. Submit the same request again. |
+| `USER_STATUS_CHANGE` | `PATCH /users/:id/status` | Users list row action, and user edit form | Keycloak may already be enabled or disabled. Submit the same request again. |
+| `USER_ROLES_UPDATE` | `PUT /users/:id/roles` | User edit form, roles section | Some realm role mappings may have changed. Submit the same request again. |
+
+### §4.4 Resources
+Role notes:
+> `syncStatus`: The outcome of the last gateway sync attempt made for this role (AD-06). `SYNCED` means that call got a 2xx, not that the gateway enforces the rows (GW-2). A display hint only: the Keycloak check at assignment is authoritative (AD-10).
+> `lastSyncAt`: Time of that attempt. `userCount`: Number of local users holding the role, of any status. `createdAt`, `updatedAt`: A sync does not change `updatedAt`.
+
+Menu `path` gains:
+> Relative to the console's router base.
+
+Permission row `uriPattern`:
+> 1 to 255 characters. Starts with `/`, has no empty segment (`//`), and is made only of letters, digits and `- . _ ~ / *`. `**` may only be the whole last segment. Matching follows section 3, step 5. There is no prefix rule: patterns for other services, such as `/v1/insights/**`, are valid, because the gateway guards those too.
+
+Section 3 step 5 now matches with Spring's `AntPathMatcher`: `*` matches within one segment, `**` matches any number of segments, and matching is case-sensitive.
+
+New paragraphs:
+> **Implicit rows (AD-16).** Every non-system role always holds two `api_permissions` rows: `GET /admin/v1/me` (description "Read own profile", category `Self`) and `GET /admin/v1/me/menus` (description "Read own menu tree", category `Self`). … System roles have none.
+>
+> **Named result records.** `ResetPasswordResult` is `{ "userId": uuid, "email": string }`. `RoleSyncResult` is `{ "roleId": uuid, "syncStatus": string, "lastSyncAt": instant }`. `RolePermissions` is `{ "roleId": uuid, "syncStatus": string, "lastSyncAt": instant | null, "permissions": [Permission row] }`. `RoleMenus` is `{ "roleId": uuid, "menuIds": [uuid] }`.
+
+The shapes are unchanged. The records only get names. The trimming sentence moved to §4.1.
+
+### §4.5 Endpoints
+The intro now begins: "Paths are relative to `/admin/v1`."
+
+Changed rows:
+
+| Method and path | Request | Success | Other errors |
+|---|---|---|---|
+| `POST /users` | (unchanged) | 201, `Location: /admin/v1/users/{id}`, `data`: User. Creates a Keycloak account, or links an existing one (section 5.1). Maybe the warning `ACTION_EMAIL_NOT_SENT`. B-31. | 409 `USERNAME_IN_USE`, `EMAIL_IN_USE`, `ROLE_NOT_ASSIGNABLE`, `ROLE_NOT_SYNCED`. 502 (`USER_CREATE`). |
+| `POST /roles` | `{ "name", "displayName", "description"? }`. | 201, `Location`, `data`: Role. If the first sync failed, the warning `ROLE_SYNC_FAILED`. Flow 5.6. B-40. | 409 `DUPLICATE_ROLE_NAME` (section 4.2). |
+| `DELETE /roles/:id` | None. | 204. Flow 5.9. | 404 `ROLE_NOT_FOUND`. 409 `SYSTEM_ROLE_IMMUTABLE`, `ROLE_IN_USE`. |
+
+Other changes in this section:
+- **Health:** the row now says "`SELECT 1`, with at most 2 seconds to get a connection and 2 seconds to run".
+- **Named records:** reset-password, role menus, role permissions and sync now name `ResetPasswordResult`, `RoleMenus`, `RolePermissions` and `RoleSyncResult`, with the same shapes.
+
+The `/me/menus` rules and the search rules are unchanged.
+
+### §4.6 Answers (changed rows)
+| ID | Answer |
+|---|---|
+| AS-REQ-05 | … Optional: `facilityScope` (4.5). An existing Keycloak account with the same username and email is linked (AD-18). The user receives a Keycloak email to set a password. … |
+| AS-REQ-06 | … (4.2, flow 5.1). Submitting the same request again completes the creation, because the Keycloak account is then linked. |
+| AS-REQ-16 | The request is `{ menuIds }`, and GET returns `RoleMenus`, `{ roleId, menuIds }`. … |
+| AS-REQ-17 | … The five methods are fixed. `**` may only be the last segment, and matching follows `AntPathMatcher` (section 3, step 5). … |
+| AS-REQ-19 | … sync returns 200 with `RoleSyncResult`, reset-password returns 200 with `ResetPasswordResult`, status returns 200 with the User, and role delete returns 204. Role create returns 201, with the warning `ROLE_SYNC_FAILED` when its first sync failed. |
+| AS-REQ-24 | Reset with `docker compose --profile app down -v`, then start again (9.3). … |
+
+### §9.3 Values, commands and reset
+Only the start commands changed:
+> *   `docker compose up -d --wait` starts the infrastructure.
+> *   Then either `./mvnw spring-boot:run` (service on the host) or `docker compose --profile app up -d --build --wait` (service in a container).
+
+The console values, the stand-in switch URL, the reset command and the `.env` variables are unchanged.
+
+**Not shared with the console (§9.4):** `GATEWAY_SYNC_SCOPE`, `PERMISSION_CACHE_TTL` and `AUDIT_TRUST_FORWARDED_FOR` are removed, and `TRUSTED_PROXIES` is added.
+````
+

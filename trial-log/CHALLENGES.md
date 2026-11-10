@@ -33,6 +33,8 @@ Causes:
 | C-12 | Drafting | Two designs depend on each other through the API contract | EGM gap / Process | Resolved |
 | C-13 | Drafting | A headless Elephant cannot look up current versions, but the plan must pin them | Host / EGM by design | Resolved by the author |
 | C-14 | Drafting | One question per turn makes drafting a long series of round trips | EGM by design | Partly mitigated |
+| C-15 | Review | A stage orchestrator returned before its reviewers finished, and a reviewer read a large linked design only in part | EGM / Host | Handled by the review session; recorded |
+| C-16 | Review | 145 findings for one design, from stages that disagree on direction, so the author must arbitrate | EGM by design | Resolved by author triage |
 
 ## Details
 
@@ -213,3 +215,39 @@ Causes:
 - **For teams:** batch the questions you have firm answers to, and keep the option gates for
   real trade-offs. Expect several hours of wall-clock time per design when the gates are
   answered as they come.
+
+### C-15 · Review reliability: an orchestrator that returned early, and partial reading
+
+- **What happened:** two things went wrong in the console design's review (`d157201e`, H-034).
+  - The Stage 9 synthesizer, the subagent that spawns that stage's three reviewers and merges
+    their reports, returned before its reviewers had finished. The review's main context then
+    collected the three reports itself and wrote `implementation_readiness_report.md`.
+  - The Stage 8 reviewer read the 1,653-line service design, which the console design links to,
+    only in part (lines 1–860 and 995–1363).
+
+  Both are recorded in the consolidated report's "Process notes". The service design's review
+  (`8a09292b`) had neither problem: "every reviewer completed without a retry".
+- **Impact:** small in this run, because the main context caught both. But a reviewer that
+  reads only part of a long linked file can miss contradictions in the part it skipped.
+- **For teams:** read the "Process notes" and the stage table in every consolidated report.
+  Keep designs and their linked files short enough for a reviewer to read whole. When a reviewer
+  reports partial coverage, rerun that stage.
+
+### C-16 · Many findings, from stages that disagree on direction
+
+- **What happened:** the service design's review produced 145 stage findings, merged into 33
+  actions (3 Blockers, 24 Majors, 6 Nits). The console design's review produced 30 actions.
+  The stages disagreed on direction:
+  - Stages 5 and 7 proposed new mechanisms: adopt endpoints, intent rows, a drift detector,
+    background re-sync and a shadow mode.
+  - Stage 8 argued that most findings came from mechanisms the design had already added beyond
+    the PRD, and that removing them was the cheaper fix.
+
+  Five actions reopened decisions the author had made at drafting gates (AD-02, AD-06, AD-12,
+  AD-15 and AD-17).
+- **Resolution:** the author followed Stage 8's direction where the stages conflicted, and
+  decided the five reopened decisions explicitly in the resolve prompt (H-036). For example,
+  AD-17's own permission check stays, but in its smallest form.
+- **For teams:** budget author time for triage after every review. The Stage 8 reviewer, which
+  checks earlier findings against the document's purpose, is the most useful guard against a
+  design growing with each round.
