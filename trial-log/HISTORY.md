@@ -2943,3 +2943,24 @@ DESIGN-GAPs: none.
 Orchestrator re-ran ./mvnw verify (exit 0) and checked the container stack and /health.
 ````
 
+### H-060 · 2026-11-10 17:48 UTC · orchestrator action · Implement admin-service phase 8 (API E2E S1-S6)
+
+- **Actor:** Orchestrator -> fresh implementation agent
+
+**Input** (what was asked or run):
+
+````text
+Fresh agent, same brief. Scope: Phase 8, API-level end-to-end checks S1 to S6 against the full running stack (reset allowed for this project only).
+````
+
+**Output** (what came back):
+
+````markdown
+Agent report (condensed): e2e Maven profile (Failsafe), E2eEnvironment, E2eClients, TokenClient, StubMode, scenario classes S1-S6 and HardControlE2E.
+Exit check passed on the first try (and a second run): stack reset and rebuilt healthy with bootstrap; ./mvnw -Pe2e verify 7 E2E tests pass:
+ S1 merged menu tree of two roles; S2 create (Keycloak account, realm roles, local row, USER_CREATED, Mailpit email) and linking a Keycloak-only account; S3 role create SYNCED with tagged realm role, DETAIL warning, permission save, exact audit sequence; S4 only changed mappings move, no-op repeat; S5 INACTIVE disables in Keycloak, old token 403, ACTIVE restores; S6 stand-in fail: 201 ROLE_SYNC_FAILED, 502 ROLE_PERMISSIONS_SAVE with FAILED audit row, assignment 409 ROLE_NOT_SYNCED, re-sync 200, assignment 200; HardControl: console role 403 on GET /users, 200 on /me/menus.
+./mvnw verify still 278 tests (no E2E); stand-in verify 16 tests. No service fixes needed.
+DESIGN-GAPs (2): naming rule when a scenario needs two names; no database access listed for reading audit rows (read-only JDBC used).
+Orchestrator re-ran ./mvnw -Pe2e verify: exit 0.
+````
+

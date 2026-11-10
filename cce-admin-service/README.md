@@ -93,6 +93,44 @@ Then start again. Removing the volume deletes both databases. On the next start,
 the realm again, Flyway migrates again, and the bootstrapper creates the administrator's row
 again.
 
+## End-to-end checks (S1 to S6)
+
+The API-level end-to-end checks run the PRD's scenarios S1 to S6, and the live hard control,
+against the running stack. They are JUnit classes named `*E2E.java` in
+`src/test/java/org/cce/admin/e2e`, run by Failsafe in the Maven profile `e2e`. `./mvnw verify`
+never runs them.
+
+```sh
+docker compose --profile app up -d --build --wait   # the full stack, service in a container
+./mvnw -Pe2e verify                                 # runs only the *E2E classes
+```
+
+- They call the service directly on `localhost:8085`, the stand-in on `GATEWAY_BASE_URL`, Mailpit
+  on `localhost:8025`, and Keycloak on `KEYCLOAK_SERVER_URL`. They read `.env` from this folder;
+  a process environment variable wins over the same key in `.env`.
+- Tokens come from the public client `cce-e2e` with the password grant: the test administrator's
+  (`CCE_TEST_ADMIN_USERNAME`, `CCE_TEST_ADMIN_PASSWORD`), and those of the users a scenario
+  creates. For those users the checks set a password and clear the required actions through the
+  Keycloak Admin API as the local master `admin` (`KEYCLOAK_ADMIN_PASSWORD`). This is test-only
+  setup: the service itself never handles a password.
+- Audit rows are read, read-only, from `audit_log` through the host-run `DATABASE_URL`,
+  `DATABASE_USERNAME` and `DATABASE_PASSWORD`.
+- Every name a run creates ends in a per-run suffix, the last 8 digits of the epoch seconds:
+  roles `E2E_<SCENARIO>_<suffix>`, users `e2e-<scenario>-<suffix>` with email
+  `e2e-<scenario>-<suffix>@cce.local`, menus `e2e-<scenario>-<suffix>`. Runs therefore do not
+  collide, and the created rows stay until the next reset.
+- S6 switches the stand-in to `fail`. Every check sets it back to `ok` when it ends.
+
+| Class | Checks |
+|---|---|
+| `ScenarioS1MenusE2E` | A user holding two roles with overlapping menus gets the merged `/me/menus` tree (S1, B5). |
+| `ScenarioS2OnboardUserE2E` | `POST /users` creates the Keycloak account, its realm roles, the local row, `USER_CREATED` and the Mailpit email; a Keycloak-only account is linked (`after.linked = true`). |
+| `ScenarioS3ConfigureRoleE2E` | Role create gives `SYNCED` and a realm role; a `DETAIL` without its parent gives `DETAIL_WITHOUT_PARENT`; a permission save gives 200 and two audit rows. |
+| `ScenarioS4ChangeRolesE2E` | Replacing a user's roles moves only the changed Keycloak mappings. |
+| `ScenarioS5DeactivateE2E` | `INACTIVE` disables the Keycloak account, keeps `user_roles`, and the user's token gets 403; `ACTIVE` restores access. |
+| `ScenarioS6SyncFailureE2E` | With the stand-in failing: 201 with `ROLE_SYNC_FAILED`, 502 `ROLE_PERMISSIONS_SAVE` with the rows kept, 409 `ROLE_NOT_SYNCED`; after `ok`, re-sync and assignment succeed. |
+| `HardControlE2E` | A console user gets 403 `FORBIDDEN` on `GET /users` and 200 on `GET /me/menus` (the service's own check, not the gateway's). |
+
 ## Token script
 
 `scripts/token-claims.mjs` gets a token from the local realm and prints its `iss`, `aud`,
