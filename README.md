@@ -19,11 +19,18 @@ EGM has three roles:
   whole process, so Claude answered EGM's questions as the user's delegate. Every answer is in
   [trial-log/HISTORY.md](trial-log/HISTORY.md).
 
+## Status
+
+The trial is complete. Both designs were drafted, reviewed twice and resolved. Both repositories
+are built, and their unit tests and end-to-end tests pass against a real Postgres and Keycloak.
+The verdict, with caveats, is in [trial-log/REPORT.md](trial-log/REPORT.md#1-short-answer).
+
 ## Where to look
 
 | File | What it holds |
 |---|---|
-| [trial-log/REPORT.md](trial-log/REPORT.md) | The step-by-step write-up (added at the end) |
+| [trial-log/REPORT.md](trial-log/REPORT.md) | The write-up: the verdict, what was built, the steps, the challenges, cost and recommendations |
+| [trial-log/FINDINGS.md](trial-log/FINDINGS.md) | Every problem found, by stage: Elephant, Goldfish review, implementation |
 | [trial-log/JOURNAL.md](trial-log/JOURNAL.md) | One entry per step: what was done, decisions, problems, cost |
 | [trial-log/CHALLENGES.md](trial-log/CHALLENGES.md) | What got in the way of full development with EGM, and how each problem was solved |
 | [trial-log/HISTORY.md](trial-log/HISTORY.md) | Every input sent to EGM and its exact reply, in order |
