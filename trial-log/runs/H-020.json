@@ -1,0 +1,102 @@
+{
+  "duration_api_ms": 729663,
+  "stop_reason": "end_turn",
+  "session_id": "d8132724-9fe1-46b3-8537-799ad75e43bb",
+  "total_cost_usd": 3.539649999999999,
+  "usage": {
+    "input_tokens": 10,
+    "cache_creation_input_tokens": 26571,
+    "cache_read_input_tokens": 707716,
+    "output_tokens": 12046,
+    "output_tokens_details": {
+      "thinking_tokens": 2100
+    },
+    "server_tool_use": {
+      "web_search_requests": 0,
+      "web_fetch_requests": 0
+    },
+    "service_tier": "standard",
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 26571,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "inference_geo": "global",
+    "iterations": [
+      {
+        "input_tokens": 2,
+        "output_tokens": 2825,
+        "cache_read_input_tokens": 187569,
+        "cache_creation_input_tokens": 3477,
+        "cache_creation": {
+          "ephemeral_5m_input_tokens": 0,
+          "ephemeral_1h_input_tokens": 3477
+        },
+        "type": "message"
+      }
+    ],
+    "speed": "standard",
+    "fallback_credit": null
+  },
+  "modelUsage": {
+    "claude-opus-5-5": {
+      "inputTokens": 56,
+      "outputTokens": 76615,
+      "thinkingTokens": 37236,
+      "cacheReadInputTokens": 2934990,
+      "cacheCreationInputTokens": 177516,
+      "cacheCreationEphemeral5mInputTokens": 0,
+      "cacheCreationEphemeral1hInputTokens": 177516,
+      "webSearchRequests": 0,
+      "costUSD": 3.539649999999999,
+      "contextWindow": 1000000,
+      "maxOutputTokens": 128000,
+      "canonicalModel": "claude-opus-5-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  },
+  "permission_denials": [],
+  "terminal_reason": "completed",
+  "fast_mode_state": "off",
+  "fast_mode_disabled_reason": "sdk_opt_in_required",
+  "subagent_stats": {
+    "spawned": 0,
+    "requested": {
+      "background": 0,
+      "foreground": 0,
+      "unset": 0
+    },
+    "started_in_background": 0,
+    "max_depth": 0,
+    "spawned_by_subagents": 0,
+    "completed": 0,
+    "failed": 0,
+    "killed": {
+      "parent": 0,
+      "user": 0,
+      "system": 0
+    },
+    "refused": {
+      "depth_limit": 0,
+      "concurrency_limit": 0,
+      "budget": 0
+    },
+    "by_type": {}
+  },
+  "safety_stops": 0,
+  "is_error": false,
+  "num_turns": 14,
+  "subtype": "success",
+  "api_error_status": null,
+  "result": "I've recorded OQ-4 as AD-04 (with DEV-4), and OQ-8 and OQ-11 to OQ-15 as AD-05 to AD-10, together with P1 to P4, in [design_draft.md](/home/jayaprakashn/Documents/workspace/elephant-goldfish-trial/egm/admin-service/design_draft.md):\n- **G5:** amended to allow the `ACTION_EMAIL_NOT_SENT` exception.\n- **G8:** rewritten your way. There is one audit row per state change, every sync attempt writes its own `ROLE_SYNC_REQUESTED` row, and the test expects two rows for a permission save and one for a re-sync.\n- **Contract:** the warning shape now covers both warning codes. `ROLE_NOT_SYNCED` and `LAST_SYSTEM_ADMIN` are added to the error codes. `partialState` for a failed sync points to the `ROLE_SYNC_REQUESTED` row.\n- **AS-REQ map:** now points to the AD decisions. Only AS-REQ-22 (in part), 23 and 24 are still waiting, on OQ-5, OQ-7 and M0.\n\n**A gap for you to know about before the next decisions.** `DELETE /roles/:id` also removes the role's `api_permissions` rows. My plan is that it then calls the gateway sync when the role had rows, so the gateway can drop the realm role (GW-4), and audits that attempt as `ROLE_SYNC_REQUESTED`, as AD-06 requires. If that sync fails, the delete returns 502 even though the role is gone, and the console has no role left to re-sync. The next successful sync of any role (under `GLOBAL`) clears the leftover. I'll write it that way in the flows unless you object.\n\n---\n\n**OQ-5 (answers AS-REQ-23): what stands in for the gateway sync locally?** The stand-in has to meet three needs:\n1. It must create realm roles from `api_permissions`. Otherwise every newly created role fails `ROLE_NOT_SYNCED` (AD-10) when it is assigned in S2, S3 and S4.\n2. A test must be able to make it fail and then succeed again without restarting the service (AS-REQ-23, S6).\n3. It must fit G10: the real gateway is reached only through configuration.\n\n- **A. A local implementation inside the service, chosen by a Spring profile.**\n  - *How it works:* under the profile `local`, `GatewaySyncClient` is a second implementation. It skips HTTP, reads the distinct `permission_name` values from `api_permissions`, and creates any missing realm roles through the Keycloak admin client. A local-only endpoint, registered only under that profile, sets it to fail or succeed.\n  - *Trade-offs:*\n    - There is no extra container or code base.\n    - The real HTTP client is never run locally: its URL, authentication, timeouts and status mapping.\n    - The local service account needs the right to create realm roles, which the shared environments' account doesn't get.\n    - A failure switch lives inside the service, even if only under one profile.\n  - *Fails when:* the HTTP client has a bug that only the real gateway exposes, or the `local` profile is switched on somewhere it shouldn't be.\n- **B. A stand-in gateway in its own container.**\n  - *How it works:* a small HTTP server in the compose file, built from a separate module in the `cce-admin-service` repository. It answers `POST /api/permissions/sync-to-keycloak` by reading `api_permissions` and creating missing realm roles in Keycloak. It has a control endpoint (`PUT /_stub/mode` with `ok` or `fail`) that tests flip, and the service reaches it through `GATEWAY_BASE_URL`.\n  - *Trade-offs:*\n    - The service runs exactly the code path it runs against the real gateway.\n    - There's a second small code base, with its own Keycloak credentials, to maintain and test.\n    - It copies the *assumed* gateway contract (GW-1, GW-4), so it can drift from the real one.\n  - *Fails when:* the real gateway behaves differently from the GW-1 assumption. Everything passes locally and fails in the first shared environment.\n- **C. WireMock for the HTTP call, with realm roles created by test setup.**\n  - *How it works:* a WireMock container answers the sync call, and its standard admin API switches between success and failure at runtime. Nothing creates realm roles on sync. Instead, the E2E setup and anyone doing a manual demo create the realm role through the Keycloak Admin API before assigning a new role.\n  - *Trade-offs:*\n    - No custom server code, and the real HTTP client still runs.\n    - S3's \"gateway sync triggered so the realm role exists\" is never shown locally.\n    - A role created in the console can't be assigned until someone creates its realm role by hand. The console's browser tests (CUJ 3, then CUJ 5) would need Keycloak steps outside the console.\n  - *Fails when:* someone does a local demo or a browser test that creates and then assigns a role through the console alone. It hits `ROLE_NOT_SYNCED`.\n\nWhich option should the design use for OQ-5?\n- A: a local implementation inside the service, under a profile\n- B: a stand-in gateway container with a control endpoint\n- C: WireMock, with realm roles created by test setup",
+  "ttft_ms": 11457,
+  "type": "result",
+  "duration_ms": 104809,
+  "uuid": "d7621859-66dc-4311-baf3-554e4a603295",
+  "ttft_stream_ms": 1596,
+  "time_to_request_ms": 490,
+  "first_content_frame_ms": 1597,
+  "queued_turn_count": 0,
+  "result_index": 0,
+  "credential_expires_at": "2026-11-25T12:02:27.741Z"
+}

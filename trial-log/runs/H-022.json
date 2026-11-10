@@ -1,0 +1,102 @@
+{
+  "duration_api_ms": 835733,
+  "stop_reason": "end_turn",
+  "session_id": "d8132724-9fe1-46b3-8537-799ad75e43bb",
+  "total_cost_usd": 3.9966791999999987,
+  "usage": {
+    "input_tokens": 2,
+    "cache_creation_input_tokens": 2433,
+    "cache_read_input_tokens": 203043,
+    "output_tokens": 3931,
+    "output_tokens_details": {
+      "thinking_tokens": 2372
+    },
+    "server_tool_use": {
+      "web_search_requests": 0,
+      "web_fetch_requests": 0
+    },
+    "service_tier": "standard",
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 2433,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "inference_geo": "global",
+    "iterations": [
+      {
+        "input_tokens": 2,
+        "output_tokens": 3931,
+        "cache_read_input_tokens": 203043,
+        "cache_creation_input_tokens": 2433,
+        "cache_creation": {
+          "ephemeral_5m_input_tokens": 0,
+          "ephemeral_1h_input_tokens": 2433
+        },
+        "type": "message"
+      }
+    ],
+    "speed": "standard",
+    "fallback_credit": null
+  },
+  "modelUsage": {
+    "claude-opus-5-5": {
+      "inputTokens": 62,
+      "outputTokens": 87804,
+      "thinkingTokens": 41845,
+      "cacheReadInputTokens": 3523916,
+      "cacheCreationInputTokens": 191946,
+      "cacheCreationEphemeral5mInputTokens": 0,
+      "cacheCreationEphemeral1hInputTokens": 191946,
+      "webSearchRequests": 0,
+      "costUSD": 3.9966791999999987,
+      "contextWindow": 1000000,
+      "maxOutputTokens": 128000,
+      "canonicalModel": "claude-opus-5-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  },
+  "permission_denials": [],
+  "terminal_reason": "completed",
+  "fast_mode_state": "off",
+  "fast_mode_disabled_reason": "sdk_opt_in_required",
+  "subagent_stats": {
+    "spawned": 0,
+    "requested": {
+      "background": 0,
+      "foreground": 0,
+      "unset": 0
+    },
+    "started_in_background": 0,
+    "max_depth": 0,
+    "spawned_by_subagents": 0,
+    "completed": 0,
+    "failed": 0,
+    "killed": {
+      "parent": 0,
+      "user": 0,
+      "system": 0
+    },
+    "refused": {
+      "depth_limit": 0,
+      "concurrency_limit": 0,
+      "budget": 0
+    },
+    "by_type": {}
+  },
+  "safety_stops": 0,
+  "is_error": false,
+  "num_turns": 1,
+  "subtype": "success",
+  "api_error_status": null,
+  "result": "I haven't changed any files this turn. Your first item contradicts a decision already recorded, so EGM requires me to stop and ask first. OQ-6 itself (A, with forwarding the caller's token kept only as a code-change fallback) has no problems, and I'll record it once this is resolved.\n\n**The contradiction.** AD-07 says: \"`POST /roles/:id/sync` and assigning a system role to users are still allowed.\" Your item 1 makes `CCE_ADMIN_SERVICE` a system role that can *never* be assigned to people. Both can be true, but only with a rule that tells the two system roles apart. That rule is a data-model choice, and the console depends on it: its role pickers on the user form and the Users list filter need to know not to offer that role.\n\n**How I'd write your item 2, recorded together with the answer below:**\n- **New environment:** the bootstrap steps (section 9, next to the first administrator from OQ-7) get a step that runs *before* the service's first deploy. An operator either creates the realm role `CCE_ADMIN_SERVICE` and maps it to the `service-account-cce-admin-service` user, or has the gateway owners run one sync by their own means. Until that step is done, every permission save returns 502 with `failedStep = GATEWAY_SYNC`. That is visible and recoverable, not silent.\n- **Locally:** the realm import creates the role and the mapping. The stand-in gateway checks the token like the gateway would. It verifies the RS256 signature against the realm's JWKS with JDK classes only, checks `iss`, `aud` and `exp`, and checks that a role in the token has an `api_permissions` row allowing `POST /api/permissions/sync-to-keycloak`. A misconfigured service account therefore fails locally too.\n- **Gateway owners' questions:** GW-6 records the fallback. If the endpoint expects a person's token, `GatewaySyncClient` changes to forward the caller's token. That is a code change, and the client keeps one mode.\n\n---\n\n**How should the design keep `CCE_ADMIN_SERVICE` from being assigned to people, when other system roles can be?**\n\n- **A. A new column, `roles.is_assignable`.**\n  - *How it works:* `BOOLEAN NOT NULL DEFAULT true`. The seed sets it to `false` for `CCE_ADMIN_SERVICE` and `true` for `SUPER_ADMIN`. No endpoint can set it. The Role resource exposes it as `isAssignable`. Assigning a role with `false` returns 409 `ROLE_NOT_ASSIGNABLE` *(added)* in `POST /users` and `PUT /users/:id/roles`, with `details` naming the role.\n  - *Trade-offs:* the rule lives in data, the console hides the role from pickers by reading the flag, and any later machine role works the same way. It costs one more column, field and error code. AD-07 is amended to \"system roles are assignable unless `is_assignable` is false\".\n  - *Fails when:* someone adds a machine role later through a migration and forgets to set the flag. People can then be given it.\n- **B. A role name in configuration.**\n  - *How it works:* the setting `SERVICE_ACCOUNT_ROLE_NAME` (default `CCE_ADMIN_SERVICE`) names the one role that can't be assigned. The service rejects it with 409 `ROLE_NOT_ASSIGNABLE`, and the Role resource still carries a computed `isAssignable` for the console.\n  - *Trade-offs:* no schema change. The rule depends on a setting matching a row, and only one such role can exist.\n  - *Fails when:* the setting and the seeded role name differ in some environment. Assignment is then blocked for the wrong role, or for none.\n- **C. Hide the role from the API.**\n  - *How it works:* `GET /roles` leaves out `CCE_ADMIN_SERVICE`, and `GET /roles/:id` and every `/roles/:id/...` call on its id return 404 `ROLE_NOT_FOUND`. Assigning its id gets 400 `VALIDATION_ERROR`, as an unknown id. It exists only in the database, in Keycloak and in the seed.\n  - *Trade-offs:* the simplest console, which never sees it. Administrators and auditors can't see through the API or console which APIs the service account may call. Its rights are visible only in SQL, which is what this module exists to replace.\n  - *Fails when:* an auditor asks what the service account is allowed to do. The answer needs database access.\n\nWhich option should the design use?\n- A: a column `is_assignable`\n- B: a role name in configuration\n- C: hide the role from the API",
+  "ttft_ms": 26126,
+  "type": "result",
+  "duration_ms": 40677,
+  "uuid": "36297cd8-97b8-4688-be7b-d47077a8ad94",
+  "ttft_stream_ms": 1555,
+  "time_to_request_ms": 551,
+  "first_content_frame_ms": 1556,
+  "queued_turn_count": 0,
+  "result_index": 0,
+  "credential_expires_at": "2026-11-25T12:02:27.741Z"
+}

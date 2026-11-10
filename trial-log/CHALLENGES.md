@@ -31,6 +31,8 @@ Causes:
 | C-10 | Scope | EGM stops at the design. It has no implementation or verification step | EGM gap | Worked around |
 | C-11 | Orchestration | Headless sessions ignore the project's permission rules until the folder is trusted | Host | Worked around |
 | C-12 | Drafting | Two designs depend on each other through the API contract | EGM gap / Process | Resolved |
+| C-13 | Drafting | A headless Elephant cannot look up current versions, but the plan must pin them | Host / EGM by design | Resolved by the author |
+| C-14 | Drafting | One question per turn makes drafting a long series of round trips | EGM by design | Partly mitigated |
 
 ## Details
 
@@ -177,3 +179,37 @@ Causes:
   affect one design still go through that design's own EGM gates.
 - **For teams:** when a feature spans services, decide which design owns each shared interface
   before drafting. Keep a shared decision record that every design links to.
+- **Also seen:** the console design reached its Detailed Implementation step before the service
+  contract was complete. EGM's Zero-Decision Rule cannot be met against a contract that is half
+  written, so the author paused the console session (H-019) until the service's Technical Plan
+  was approved (H-026).
+
+### C-13 · A headless Elephant cannot look up current versions
+
+- **What happened:** EGM's implementation-readiness standard requires a plan that leaves the
+  implementer no choices, which includes exact versions. The admin-service Elephant pushed back
+  when the author asked for a pinned Keycloak tag. It pointed out that `26.4` still floats, and
+  that `postgres:16-alpine` and an untagged Mailpit image do too. Its own attempt to look up the
+  tags needed network approval, which a headless run cannot give.
+- **Resolution:** the author checked every version on 2026-11-10 against Maven Central, the npm
+  registry and the image registries (`docker manifest inspect`), and recorded them as D-05 in
+  `docs/designs/author-decisions.md`. Both designs pin from that table.
+- **For teams:** give the Elephant a verified version list as an input, or let interactive
+  sessions approve its registry lookups. Otherwise a "zero-decision" plan quietly guesses its
+  versions.
+
+### C-14 · One question per turn makes drafting a long series of round trips
+
+- **What happened:** EGM's execution rules allow exactly one question per reply, and every
+  design choice with more than one defensible answer must go to the author as a gate. Drafting
+  the admin-service design took 16 turns to reach its Detailed Implementation section: 4
+  section gates, 10 option gates and 2 contradiction stops. Each turn takes 1 to 6 minutes
+  headless.
+- **Mitigation tried:** at H-017 the author answered six smaller questions in one message and
+  asked the Elephant to push back. That did not skip any checks. The Elephant's contradiction
+  audit stopped the turn, named two contradictions with goals already approved, and proposed
+  four improvements the author had not thought of (P1 to P4 in H-017). Batching saved round
+  trips without losing scrutiny.
+- **For teams:** batch the questions you have firm answers to, and keep the option gates for
+  real trade-offs. Expect several hours of wall-clock time per design when the gates are
+  answered as they come.

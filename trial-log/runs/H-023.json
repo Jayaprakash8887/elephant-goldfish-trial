@@ -1,0 +1,102 @@
+{
+  "duration_api_ms": 889639,
+  "stop_reason": "end_turn",
+  "session_id": "d8132724-9fe1-46b3-8537-799ad75e43bb",
+  "total_cost_usd": 4.292566199999999,
+  "usage": {
+    "input_tokens": 6,
+    "cache_creation_input_tokens": 11184,
+    "cache_read_input_tokens": 415155,
+    "output_tokens": 6168,
+    "output_tokens_details": {
+      "thinking_tokens": 1303
+    },
+    "server_tool_use": {
+      "web_search_requests": 0,
+      "web_fetch_requests": 0
+    },
+    "service_tier": "standard",
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 11184,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "inference_geo": "global",
+    "iterations": [
+      {
+        "input_tokens": 2,
+        "output_tokens": 1719,
+        "cache_read_input_tokens": 209679,
+        "cache_creation_input_tokens": 6981,
+        "cache_creation": {
+          "ephemeral_5m_input_tokens": 0,
+          "ephemeral_1h_input_tokens": 6981
+        },
+        "type": "message"
+      }
+    ],
+    "speed": "standard",
+    "fallback_credit": null
+  },
+  "modelUsage": {
+    "claude-opus-5-5": {
+      "inputTokens": 68,
+      "outputTokens": 93972,
+      "thinkingTokens": 43148,
+      "cacheReadInputTokens": 3939071,
+      "cacheCreationInputTokens": 203130,
+      "cacheCreationEphemeral5mInputTokens": 0,
+      "cacheCreationEphemeral1hInputTokens": 203130,
+      "webSearchRequests": 0,
+      "costUSD": 4.292566199999999,
+      "contextWindow": 1000000,
+      "maxOutputTokens": 128000,
+      "canonicalModel": "claude-opus-5-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  },
+  "permission_denials": [],
+  "terminal_reason": "completed",
+  "fast_mode_state": "off",
+  "fast_mode_disabled_reason": "sdk_opt_in_required",
+  "subagent_stats": {
+    "spawned": 0,
+    "requested": {
+      "background": 0,
+      "foreground": 0,
+      "unset": 0
+    },
+    "started_in_background": 0,
+    "max_depth": 0,
+    "spawned_by_subagents": 0,
+    "completed": 0,
+    "failed": 0,
+    "killed": {
+      "parent": 0,
+      "user": 0,
+      "system": 0
+    },
+    "refused": {
+      "depth_limit": 0,
+      "concurrency_limit": 0,
+      "budget": 0
+    },
+    "by_type": {}
+  },
+  "safety_stops": 0,
+  "is_error": false,
+  "num_turns": 7,
+  "subtype": "success",
+  "api_error_status": null,
+  "result": "I've recorded **AD-13** (OQ-6, with the bootstrap order and the stand-in's token check), **AD-14** (`is_assignable`, with the no-default change above), **GW-6**, the amended AD-07, and the new error code `ROLE_NOT_ASSIGNABLE` in [design_draft.md](/home/jayaprakashn/Documents/workspace/elephant-goldfish-trial/egm/admin-service/design_draft.md).\n\n---\n\n**OQ-7 (answers part of AS-REQ-22 and AS-REQ-24): how is the first `SUPER_ADMIN` created in each environment?** (PRD \u00a712)\n\nThat administrator needs three things:\n- a Keycloak account,\n- the `SUPER_ADMIN` realm role, which exists only after a gateway sync of `SUPER_ADMIN`'s seeded `/admin/v1/**` rows, and that needs AD-13's bootstrap step first,\n- an `ACTIVE` local `users` row with a `user_roles` row. Without that row, B-12 returns 403 on every call, so nobody can create the row through the API.\n\nLocally, the realm import can create the account, its fixed id, the realm role and the mapping. Whichever option you choose, the test administrator's credentials reach tests through the environment variables `CCE_TEST_ADMIN_USERNAME` and `CCE_TEST_ADMIN_PASSWORD` from the git-ignored `.env` (AS-REQ-24). Below, \"the realm import\" means only this local setup.\n\n- **A. A Flyway migration with placeholders.**\n  - *How it works:* a migration inserts the `users` row and its `SUPER_ADMIN` `user_roles` row from Flyway placeholders (`BOOTSTRAP_ADMIN_KEYCLOAK_ID`, `_USERNAME`, `_EMAIL`), and writes a `USER_CREATED` audit row with the actor `system:bootstrap`. The operator creates the Keycloak user, maps the realm role and copies its id first. Locally, the realm import fixes the user's id so the placeholder is known in advance.\n  - *Trade-offs:* runs exactly once and is recorded in the migration history. No startup code and no Keycloak call from the service. Every environment must supply the placeholders before the first migration, or migration fails. A wrong id can't be fixed by running again, because migrations don't re-run, so it needs hand-written SQL.\n  - *Fails when:* the operator copies the wrong id, or the Keycloak user is recreated later with a new id. The local row then points at nobody, and there is no administrator.\n- **B. A bootstrapper that runs at startup.**\n  - *How it works:* when the service starts, if no `ACTIVE` user holds `SUPER_ADMIN` and `BOOTSTRAP_ADMIN_USERNAME` is set, it:\n    1. looks up that Keycloak user by username through the Admin API,\n    2. adds the `SUPER_ADMIN` realm role mapping (if the realm role is missing, it runs one gateway sync first),\n    3. inserts the `users` and `user_roles` rows,\n    4. writes a `USER_CREATED` audit row with the actor `system:bootstrap`.\n\n    If any `ACTIVE` `SUPER_ADMIN` exists, it does nothing.\n  - *Trade-offs:*\n    - It can run again safely and needs no copied ids.\n    - It uses the same Keycloak code as `POST /users`.\n    - It is audited.\n    - It adds a code path that writes data and calls Keycloak at startup. Startup then depends on Keycloak, but only while no administrator exists.\n    - Whoever controls the variable names the first administrator. AD-07's `LAST_SYSTEM_ADMIN` rule keeps the \"no administrator\" state from coming back through the API.\n  - *Fails when:* the variable is left set to a former employee's username in an environment where every administrator was later removed by SQL. Then on the next start they become administrator again.\n- **C. An operator runbook with SQL.**\n  - *How it works:* section 9 gives a SQL script that the operator runs with psql after creating the Keycloak user. It inserts `users`, `user_roles` and an `audit_log` row. Locally, a compose init script runs the same SQL after Flyway.\n  - *Trade-offs:* no service code. Fully manual and easy to get wrong: wrong id, forgotten audit row. It is exactly the hand-edited SQL the PRD wants to replace (\u00a72), though only once per environment. Locally, the init script has to wait for Flyway, which compose can't sequence without extra scripting.\n  - *Fails when:* the script is edited on the spot and skips the audit row. The first grant of administrator access then has no record.\n\nWhich option should the design use for OQ-7?\n- A: a Flyway migration with placeholders\n- B: a bootstrapper at startup\n- C: an operator runbook with SQL",
+  "ttft_ms": 13897,
+  "type": "result",
+  "duration_ms": 54789,
+  "uuid": "350a95dd-d94e-4852-8c00-0ec08179435a",
+  "ttft_stream_ms": 1998,
+  "time_to_request_ms": 461,
+  "first_content_frame_ms": 1998,
+  "queued_turn_count": 0,
+  "result_index": 0,
+  "credential_expires_at": "2026-11-25T12:02:27.741Z"
+}

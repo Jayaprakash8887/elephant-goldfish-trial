@@ -1,0 +1,102 @@
+{
+  "duration_api_ms": 1390198,
+  "stop_reason": "end_turn",
+  "session_id": "02eb6e8f-75ce-4bca-bef2-98c5fc29ddf1",
+  "total_cost_usd": 7.479966200000003,
+  "usage": {
+    "input_tokens": 10,
+    "cache_creation_input_tokens": 15272,
+    "cache_read_input_tokens": 1793622,
+    "output_tokens": 7031,
+    "output_tokens_details": {
+      "thinking_tokens": 775
+    },
+    "server_tool_use": {
+      "web_search_requests": 0,
+      "web_fetch_requests": 0
+    },
+    "service_tier": "standard",
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 15272,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "inference_geo": "global",
+    "iterations": [
+      {
+        "input_tokens": 2,
+        "output_tokens": 1007,
+        "cache_read_input_tokens": 365203,
+        "cache_creation_input_tokens": 988,
+        "cache_creation": {
+          "ephemeral_5m_input_tokens": 0,
+          "ephemeral_1h_input_tokens": 988
+        },
+        "type": "message"
+      }
+    ],
+    "speed": "standard",
+    "fallback_credit": null
+  },
+  "modelUsage": {
+    "claude-opus-5-5": {
+      "inputTokens": 88,
+      "outputTokens": 155717,
+      "thinkingTokens": 53358,
+      "cacheReadInputTokens": 7719931,
+      "cacheCreationInputTokens": 352661,
+      "cacheCreationEphemeral5mInputTokens": 0,
+      "cacheCreationEphemeral1hInputTokens": 352661,
+      "webSearchRequests": 0,
+      "costUSD": 7.479966200000003,
+      "contextWindow": 1000000,
+      "maxOutputTokens": 128000,
+      "canonicalModel": "claude-opus-5-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  },
+  "permission_denials": [],
+  "terminal_reason": "completed",
+  "fast_mode_state": "off",
+  "fast_mode_disabled_reason": "sdk_opt_in_required",
+  "subagent_stats": {
+    "spawned": 0,
+    "requested": {
+      "background": 0,
+      "foreground": 0,
+      "unset": 0
+    },
+    "started_in_background": 0,
+    "max_depth": 0,
+    "spawned_by_subagents": 0,
+    "completed": 0,
+    "failed": 0,
+    "killed": {
+      "parent": 0,
+      "user": 0,
+      "system": 0
+    },
+    "refused": {
+      "depth_limit": 0,
+      "concurrency_limit": 0,
+      "budget": 0
+    },
+    "by_type": {}
+  },
+  "safety_stops": 0,
+  "is_error": false,
+  "num_turns": 16,
+  "subtype": "success",
+  "api_error_status": null,
+  "result": "I've applied all four revisions to [design_draft.md](egm/admin-ui/design_draft.md).\n\n1. **Exact versions:**\n   - Entry 1 now lists all 11 runtime and 24 dev dependencies at their D-05 versions, with no `^` or `~`. That includes the four extras, with `globals` at 16.5.0. The implementer is told to install with `--save-exact`.\n   - The sentence about version ranges is replaced with \"Versions are exact (D-05); `package-lock.json` is committed.\"\n   - The Dockerfile uses `node:20.20.2-alpine` and `caddy:2.11.9-alpine`. Goal 8, C-03 and the build section now give the pinned Node image too.\n   - D-05 is linked from the Overview and from the start of the implementation plan.\n2. **CQ-1:** now recorded as your decision. The five methods are fixed in the contract, the admin-service design drops its setting, and both the Permissions tab and `PERMISSION_METHODS` in `contract.ts` refer to it.\n3. **CQ-2:** recorded as accepted, with the exact help text.\n4. **The decisions I took without a gate:** listed under a new \"Decisions taken during drafting and accepted by the author\" heading in Open Questions.\n\n**What I checked against the pins:**\n- **Node versions:** Vitest 3.2.7, jsdom 26.1.0 and Playwright 1.65.0 all support both Node 20.20 and 22.22. `process.loadEnvFile`, which the browser tests use to read credentials, has been in Node since 20.12. `@vitest/coverage-v8` matches `vitest` exactly, which it must.\n- **Zod and resolvers:** `@hookform/resolvers` 3.10.0 works with Zod 3. Moving to Zod 4 later would need resolvers 5.\n\n**One thing for the admin-service session:** removing `PERMISSION_ALLOWED_METHODS` also touches its \u00a74.4 \"Permission row\" rule and its \u00a79.4 configuration table. Both still describe the method list as configurable until that design is updated.\n\nRevised Detailed Implementation in `design_draft.md`. Please review. How would you like to proceed?\n\n1. Approve Detailed Implementation and proceed to finalization\n2. Request revisions to Detailed Implementation (via inline comments or write-in)",
+  "ttft_ms": 3334,
+  "type": "result",
+  "duration_ms": 61387,
+  "uuid": "789f1195-59a1-4a60-b375-ec7770efbbbb",
+  "ttft_stream_ms": 2603,
+  "time_to_request_ms": 643,
+  "first_content_frame_ms": 2604,
+  "queued_turn_count": 0,
+  "result_index": 0,
+  "credential_expires_at": "2026-11-25T12:02:27.741Z"
+}

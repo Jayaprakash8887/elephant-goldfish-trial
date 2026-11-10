@@ -832,3 +832,976 @@ Which option should the design use for OQ-4?
 - C: three statuses, every change allowed
 ````
 
+### H-017 · 2026-11-10 13:09 UTC · EGM session turn · Fresh draft admin-service, turn 7: OQ-4 = C; batch decisions OQ-8, 11, 12, 13, 14, 15
+
+- **Session:** `d8132724-9fe1-46b3-8537-799ad75e43bb` (resumed)
+- **Answers:** the question at the end of H-016 (see [QA.md](QA.md))
+- **Took:** 1.5 min · 1 model turns · est. $2.94 · output tokens 8,431
+- **Ran:** Claude Code 2.1.319 (Claude Code) headless, model `claude-opus-5-5`, effort `high`, permission mode `acceptEdits`
+- **Result:** ok
+- **Files changed:** none
+
+**Input** (sent by the orchestrating Claude session):
+
+````text
+C: three statuses, and every change is allowed.
+
+Reasons:
+- It follows Appendix A (which lists LOCKED) and B-34, S5 and F-10 (re-activation).
+- Offboarding (INACTIVE) and a temporary block (LOCKED) are different events for operators. The audit action (USER_DEACTIVATED, USER_LOCKED or USER_ACTIVATED) records which one happened.
+- PRD §2's "terminal" appears in the row that rules out hard delete. Read it as "the last state, used instead of deletion". Record that as DEV-4.
+The console shows both labels and offers each move as a separate action.
+
+To save round trips, here are my decisions on six smaller questions. Record them as decided. If you think one of them is wrong or misses a case, say so in your next reply instead of recording it. I want that pushback. OQ-5, OQ-6, OQ-7, OQ-9 and OQ-10 stay as option gates.
+
+- OQ-8 (last_login_at). The local-user filter (pipeline step 4) sets last_login_at to the token's `auth_time` when that is later than the stored value, or when the stored value is null. That is one write per sign-in, with no polling, no Keycloak extension and no audit row, because it is not an admin action. If the token has no `auth_time`, leave last_login_at unchanged. M0 makes sure the local realm's access tokens carry `auth_time`.
+
+- OQ-11 and OQ-15 (sync outcome, and assigning a role that has not been synced).
+  - The role carries its last sync outcome in two fields on `roles`: `syncStatus` (NEVER, SYNCED or FAILED) and `lastSyncAt` (null until the first attempt).
+  - PUT /roles/:id/permissions writes one audit row, ROLE_PERMISSIONS_UPDATED, in the same transaction as the rows. After the sync call it updates the role's two sync fields. That update is not audited separately.
+  - POST /roles/:id/sync writes one audit row, ROLE_SYNC_REQUESTED, whose after_state holds the outcome.
+  - Both endpoints return 502 KEYCLOAK_SYNC_FAILED when the sync fails, and the rows stay saved.
+  - Assignment: before POST /users or PUT /users/:id/roles changes anything, the service looks up each requested role's realm role in Keycloak. It needs that role representation to add the mapping anyway. If any realm role is missing, the request fails with 409 ROLE_NOT_SYNCED (an added code) naming the roles, and nothing is changed.
+  - This answers AS-REQ-10.
+
+- OQ-12 (SYSTEM_ROLE_IMMUTABLE). For an is_system role, PUT /roles/:id, PUT /roles/:id/menus, PUT /roles/:id/permissions and DELETE /roles/:id all return 409 SYSTEM_ROLE_IMMUTABLE. Assigning a system role to users is still allowed. Reason: SUPER_ADMIN's /admin/v1/** rows are what let administrators administer, and letting anyone edit them invites a lock-out.
+
+- OQ-13 (first password).
+  - POST /users creates the Keycloak user with the required action UPDATE_PASSWORD, then sends Keycloak's execute-actions email for it.
+  - If that email cannot be sent once the account and the local row exist, the user is still created. The response is 201 with a warning, ACTION_EMAIL_NOT_SENT, so generalise the warning shape. The administrator can use reset-password later.
+  - POST /users/:id/reset-password sends the same execute-actions email (UPDATE_PASSWORD). A failure there is a 502.
+  - Locally, M0 points Keycloak's SMTP at a mail-catcher container (for example Mailpit), so mail is captured and never delivered.
+
+- OQ-14 (facility_scope). One optional string, VARCHAR(50), free text and trimmed. An empty value means null (unscoped). The GET /users filter matches it exactly. No endpoint lists valid values, because that master data is owned elsewhere (PRD §2).
+````
+
+**Output** (final reply of the headless session):
+
+````markdown
+I haven't changed any files this turn. Two of your decisions contradict goals you already approved, and EGM requires me to stop and ask before writing when that happens. Your OQ-4 choice (C, with DEV-4) has no problems, and I'll record it together with the rest once this is settled. Below are the two contradictions, then my pushback on the six decisions.
+
+**Contradictions with approved goals**
+
+1. **OQ-11 against G8.**
+   - *What G8 says:* a call that fails part-way writes exactly one audit row recording which step failed, and the 502's `partialState.auditLogId` points to that row.
+   - *What your OQ-11 does:* `PUT /roles/:id/permissions` writes `ROLE_PERMISSIONS_UPDATED` inside the transaction, before the sync runs. A sync failure is then recorded only in `roles.sync_status`. No audit row records the failure, and `auditLogId` would point to a row describing a success.
+   - *Proposed resolution:* amend G8. For a permission save, the audit row records the saved rows. A later sync failure is recorded on the role (`syncStatus = FAILED`) and in the 502 body, with `failedStep = GATEWAY_SYNC` and `auditLogId` pointing to the `ROLE_PERMISSIONS_UPDATED` row. Each Re-sync's outcome is audited through `ROLE_SYNC_REQUESTED`.
+   - *The cost:* `audit_log` alone can't show that a permission save was ever left unsynced. Only the role's latest status shows it.
+2. **OQ-13 against G5.**
+   - *What G5 says:* any step that fails after an earlier step changed something returns 502.
+   - *What your OQ-13 does:* if the action email fails after the account and row exist, the call returns 201 with a warning.
+   - *Proposed resolution:* amend G5 to make one exception. The action email changes no access state, and reset-password can send it again.
+   - *Related gap:* the `USER_CREATED` row is committed before the email is sent, so the audit trail won't show that the email failed. Only the response does. I'd accept that, because a later reset-password is audited.
+
+**Pushback on your six decisions**
+
+- **P1 (OQ-12): the lock-out risk you cite isn't fully covered.** Freezing `SUPER_ADMIN`'s permission rows protects the rows. It doesn't stop an administrator from:
+  - deactivating or locking the last `ACTIVE` user who holds `SUPER_ADMIN`, possibly themselves, or
+  - removing `SUPER_ADMIN` from that user through `PUT /users/:id/roles`.
+
+  Either one leaves nobody able to administer.
+
+  *Proposal:* a `PATCH /users/:id/status` or `PUT /users/:id/roles` that would leave zero `ACTIVE` users holding `SUPER_ADMIN` returns 409 `LAST_SYSTEM_ADMIN` *(added)*, and nothing changes.
+- **P2 (OQ-11 and OQ-15): emptying an assigned role's permissions.** The gateway creates realm roles from `api_permissions` rows, so a role with no rows never gets a realm role. Your check then correctly refuses to assign it (PRD §9). The dangerous case is the reverse.
+
+  If an administrator saves an empty permission set for a role that users hold, and the answer to GW-4 is yes, the next sync deletes the realm role. Those users lose it in Keycloak while `user_roles` still lists it, which is a silent mismatch.
+
+  *Proposal:* `PUT /roles/:id/permissions` with an empty set, on a role assigned to at least one user (any status), returns 409 `ROLE_IN_USE`.
+- **P3 (OQ-11): status goes stale if the sync covers every role.** If GW-1 says the gateway sync covers every role, a successful sync for role X also creates Y's realm role. Y would still show `FAILED` or `NEVER`, and the console would offer a retry that isn't needed.
+
+  *Proposal:* a configuration setting, `GATEWAY_SYNC_SCOPE` (`GLOBAL` or `ROLE`, default `GLOBAL`, under G10), set as follows:
+  - Under `GLOBAL`, a successful sync marks every role with at least one permission row `SYNCED` and sets its `lastSyncAt`.
+  - A failed sync marks only the role that asked.
+  - The Keycloak lookup before assignment stays the authoritative check either way.
+- **P4 (OQ-15): which roles the check covers.** The check should cover only the roles being *added*. A role being *removed* whose realm role is already missing from Keycloak (for example, after GW-4) should skip the Keycloak removal, since there's nothing to remove, rather than fail.
+
+  A related shape detail: the roles named by `ROLE_NOT_SYNCED` go in `details`, as `{field: "roleIds[i]", message}`. So `details` will no longer appear only on `VALIDATION_ERROR`.
+
+**Notes, not objections**
+- **OQ-8:**
+  - `last_login_at` will mean "the last sign-in whose token reached this service". A sign-in to a console that never calls the service isn't counted.
+  - The write is a conditional `UPDATE … WHERE last_login_at IS NULL OR last_login_at < :authTime`, so parallel requests are safe, and it doesn't touch `updated_at`.
+  - Since Keycloak 25, `auth_time` in access tokens comes from the `basic` client scope, so M0 keeps that scope on both console clients.
+- **OQ-4:** `LOCKED` is set only by an administrator. It isn't linked to Keycloak's own brute-force lockout, and the document will say so.
+- **OQ-14:** no objection. One side effect: with exact matching and an empty filter value ignored, nobody can filter for unscoped users. F-10 doesn't ask for that.
+
+**Question:** how should I resolve the two contradictions and the pushback?
+- Accept everything as proposed: amend G5 and G8, then record OQ-4, OQ-8, OQ-11 to OQ-15 and P1 to P4
+- Accept with changes (write in which items differ)
+````
+
+### H-018 · 2026-11-10 13:10 UTC · EGM session turn · Fresh draft admin-ui, turn 6: approve Technical Plan; sync with admin-service contract §4.1–4.3
+
+- **Session:** `02eb6e8f-75ce-4bca-bef2-98c5fc29ddf1` (resumed)
+- **Answers:** the question at the end of H-014 (see [QA.md](QA.md))
+- **Took:** 3.4 min · 23 model turns · est. $3.55 · output tokens 21,642
+- **Ran:** Claude Code 2.1.319 (Claude Code) headless, model `claude-opus-5-5`, effort `high`, permission mode `acceptEdits`
+- **Result:** ok
+- **Files changed:** `egm/admin-ui/design_draft.md` (changed)
+
+**Input** (sent by the orchestrating Claude session):
+
+````text
+1. Approve the Technical Plan and proceed to the next section.
+
+The admin-service draft has since settled part of the contract, in egm/admin-service/design_draft.md, Technical Plan §3 and §4.1–4.3. It answers AS-REQ-01, 02, 03, 06, 18 and 21, and the local Keycloak address in AS-REQ-22. In brief:
+- Pages start at 1, and a pageSize above 100 is a 400.
+- The pagination block is {page, pageSize, totalItems, totalPages}. Only GET /users and GET /roles are paginated.
+- DELETE returns 204 with no body.
+- Warnings go in a top-level `warnings` array.
+- Validation errors carry `details: [{field, message}]`.
+- Every 502 carries `partialState`.
+- Local Keycloak is at http://localhost:8180/auth and is not proxied by Vite, so the token issuer stays the same.
+Read those sections there for the exact shapes. Do not take them from this summary. Then update the places in your draft that depend on them, and keep "pending" only where the admin-service draft has not answered yet. That design's sections 4.4 onwards (resource shapes and endpoints) and 9 (M0) are still being drafted. Before you write the Detailed Implementation section, tell me which AS-REQ items are still unanswered there, so that I can get them settled first.
+````
+
+**Output** (final reply of the headless session):
+
+````markdown
+I've updated the draft against the admin-service draft's §3 and §4.1–4.3, and added the Alternatives section. Both are in [design_draft.md](egm/admin-ui/design_draft.md).
+
+**What changed because of the settled contract:**
+- **Request bodies must hold only contract fields.** The service rejects any extra property with a 400, so forms build each request body field by field. MSW enforces the same rule, so the mistake fails a unit test first.
+- **The 502 on user create now has two cases.** If `partialState.completedSteps` is empty, nothing was changed and the admin may submit again. Otherwise the button stays locked, and the notice shows the audit log id and the Keycloak user id. The Permissions tab uses the same rule for "saved, not synced" versus "nothing saved".
+- **Roles are fetched page by page.** `GET /roles` is paginated, so the Roles list now has server-side paging. The role pickers use a new `useAllRoles` query that walks every page at 100 per page.
+- **Paging inputs are cleaned before any request.** The service returns 400 for out-of-range paging values instead of clamping them. The console replaces a bad `page` or `pageSize` in the URL with the default first. If a page comes back empty and is past the last page, it moves to the last page.
+- **Server errors map onto the forms.** A field path like `permissions[2].uriPattern` is mapped to the matching form field. The new codes are handled: `USERNAME_IN_USE`, `MENU_HAS_CHILDREN`, `INTERNAL_ERROR`, `NOT_FOUND` and `METHOD_NOT_ALLOWED`.
+- **Local Keycloak is set in `.env`.** It is `http://localhost:8180/auth` with realm `cce`, set through `.env` and not proxied by Vite. The status of every AS-REQ against your §4.1–4.3 is now in one table in the draft.
+
+**AS-REQ items still unanswered**, to settle before Detailed Implementation:
+
+| Waiting on | Items |
+|---|---|
+| Author gates | AS-REQ-07 (OQ-4 status changes), 08 (OQ-14 facility scope), 10 (OQ-15 unsynced role), 12 (OQ-12 system role), 23 (OQ-5 sync-failure switch), 24 (OQ-7 test admin, plus §9 reset) |
+| §4.4 onwards: resource shapes and endpoints | AS-REQ-04 (user fields; last login also waits on OQ-8), 05 (create fields; first password also waits on OQ-13), 09 (`q` fields), 11 (role fields and name rule), 13 (menu fields and icon format), 14 (how a menu is deactivated), 15 (inactive menus in a role's set), 16 (body of `PUT /roles/:id/menus` and shape of `GET /roles/:id/menus`), 17 (permission rows), 19 (responses for sync, reset-password and status changes), 20 (`GET /me` fields) |
+| §9 (M0) | AS-REQ-22: whether tokens from the `cce-admin-ui` client carry the audience `gateway-service`. If they don't, every local call is a 401. |
+| Not blocking | AS-REQ-06 step names (§5): the console shows them as sent. AS-REQ-01: codes still to come from OQ-4 and OQ-15. |
+
+AS-REQ-17 also depends on the gateway owners (GW-3, the URI pattern syntax), who may never answer. The admin-service design will probably have to state an assumed syntax for the console to validate against.
+
+**About the Alternatives section:**
+- **A to E** are the options you rejected at the gates, each with your stated reason.
+- **F (generating types from OpenAPI)** I recorded as rejected under your Step 1 item 7. The reason written there is mine: types generated from the code would hide drift from the design. Check that you agree with it.
+- **G (keeping the sync state in `localStorage`)** I decided during drafting and never put it to you. My reasoning is that a stored "synced" can be wrong if another admin re-syncs, which could lead to assigning a role whose realm role doesn't exist. Reject it here if you see it differently.
+- **H** lists the options the PRD rules out.
+
+Drafted Alternatives Considered in `design_draft.md`. Please review. How would you like to proceed?
+
+1. Approve Alternatives Considered and proceed to next section
+2. Request revisions to Alternatives Considered (via inline comments or write-in)
+````
+
+### H-019 · 2026-11-10 13:11 UTC · EGM session turn · Fresh draft admin-ui, turn 7: approve Alternatives; hold before Detailed Implementation
+
+- **Session:** `02eb6e8f-75ce-4bca-bef2-98c5fc29ddf1` (resumed)
+- **Answers:** the question at the end of H-018 (see [QA.md](QA.md))
+- **Took:** 0.4 min · 7 model turns · est. $3.74 · output tokens 2,359
+- **Ran:** Claude Code 2.1.319 (Claude Code) headless, model `claude-opus-5-5`, effort `high`, permission mode `acceptEdits`
+- **Result:** ok
+- **Files changed:** `egm/admin-ui/design_draft.md` (changed)
+
+**Input** (sent by the orchestrating Claude session):
+
+````text
+1. Approve Alternatives Considered, with two notes:
+- F: the rejection stands. Drift between the running service and the console is caught by the Goal 9 browser tests against the real service, not by generated types.
+- G: this is now moot rather than rejected. At the admin-service gates the role resource gained server-side sync fields (`syncStatus` NEVER/SYNCED/FAILED and `lastSyncAt`), which answers AS-REQ-10. Say that in G, and plan for the Permissions tab to read those fields instead of a cache-only state.
+
+Do not start the Detailed Implementation section yet. The admin-service session is still drafting its contract (§4.4 onwards) and M0 (§9). The author gates behind AS-REQ-07, 08, 10 and 12 have been decided, and they are being written into that draft now. Reply with a one-line acknowledgement and stop. I will tell you when the admin-service contract is complete, and you will read it there.
+````
+
+**Output** (final reply of the headless session):
+
+````markdown
+Alternatives are approved, with F and G updated and the Permissions tab now reading the role's `syncStatus` and `lastSyncAt` instead of a cache-only state; I'll wait for you to say the admin-service contract is complete before starting Detailed Implementation.
+````
+
+### H-020 · 2026-11-10 13:12 UTC · EGM session turn · Fresh draft admin-service, turn 8: accept pushback P1-P4; OQ-11 = audit every sync attempt
+
+- **Session:** `d8132724-9fe1-46b3-8537-799ad75e43bb` (resumed)
+- **Answers:** the question at the end of H-017 (see [QA.md](QA.md))
+- **Took:** 1.8 min · 14 model turns · est. $3.54 · output tokens 12,046
+- **Ran:** Claude Code 2.1.319 (Claude Code) headless, model `claude-opus-5-5`, effort `high`, permission mode `acceptEdits`
+- **Result:** ok
+- **Files changed:** `egm/admin-service/design_draft.md` (changed)
+
+**Input** (sent by the orchestrating Claude session):
+
+````text
+Accept with changes. Everything is accepted as you proposed (amend G5, record OQ-4, OQ-8, OQ-12 to OQ-15, and P1 to P4), except the resolution of OQ-11 against G8, which goes like this instead:
+
+- Every gateway sync attempt writes its own audit row, ROLE_SYNC_REQUESTED, whose after_state holds the outcome (SUCCESS or FAILED, plus the error summary). That applies to the automatic sync after PUT /roles/:id/permissions as well as to POST /roles/:id/sync.
+- A permission save therefore writes two rows: ROLE_PERMISSIONS_UPDATED in the same transaction as the rows, then ROLE_SYNC_REQUESTED after the sync call. On a 502, `partialState.auditLogId` points to the ROLE_SYNC_REQUESTED row, which records the failure, with `failedStep = GATEWAY_SYNC` and `completedSteps` naming the saved rows.
+- Amend G8 to say this: one row per state change, where the saved rows are one change and each sync attempt is another. The test asserts two rows for a permission save and one row for a manual re-sync, on both outcomes.
+- The role's syncStatus and lastSyncAt are still kept, for the console. audit_log alone now shows whether every permission change reached the gateway.
+Reason: this is a compliance platform (PRD §9, Auditability), and "is the saved permission actually in effect" is exactly what an auditor asks. The role's latest status cannot answer that for past changes.
+
+On your notes: the meaning you give last_login_at, the conditional UPDATE and keeping the `basic` scope on both console clients are accepted. LOCKED is set by an administrator only, and that is accepted. On OQ-14, an "unscoped users only" filter stays out of scope, because F-10 does not ask for it.
+````
+
+**Output** (final reply of the headless session):
+
+````markdown
+I've recorded OQ-4 as AD-04 (with DEV-4), and OQ-8 and OQ-11 to OQ-15 as AD-05 to AD-10, together with P1 to P4, in [design_draft.md](/home/jayaprakashn/Documents/workspace/elephant-goldfish-trial/egm/admin-service/design_draft.md):
+- **G5:** amended to allow the `ACTION_EMAIL_NOT_SENT` exception.
+- **G8:** rewritten your way. There is one audit row per state change, every sync attempt writes its own `ROLE_SYNC_REQUESTED` row, and the test expects two rows for a permission save and one for a re-sync.
+- **Contract:** the warning shape now covers both warning codes. `ROLE_NOT_SYNCED` and `LAST_SYSTEM_ADMIN` are added to the error codes. `partialState` for a failed sync points to the `ROLE_SYNC_REQUESTED` row.
+- **AS-REQ map:** now points to the AD decisions. Only AS-REQ-22 (in part), 23 and 24 are still waiting, on OQ-5, OQ-7 and M0.
+
+**A gap for you to know about before the next decisions.** `DELETE /roles/:id` also removes the role's `api_permissions` rows. My plan is that it then calls the gateway sync when the role had rows, so the gateway can drop the realm role (GW-4), and audits that attempt as `ROLE_SYNC_REQUESTED`, as AD-06 requires. If that sync fails, the delete returns 502 even though the role is gone, and the console has no role left to re-sync. The next successful sync of any role (under `GLOBAL`) clears the leftover. I'll write it that way in the flows unless you object.
+
+---
+
+**OQ-5 (answers AS-REQ-23): what stands in for the gateway sync locally?** The stand-in has to meet three needs:
+1. It must create realm roles from `api_permissions`. Otherwise every newly created role fails `ROLE_NOT_SYNCED` (AD-10) when it is assigned in S2, S3 and S4.
+2. A test must be able to make it fail and then succeed again without restarting the service (AS-REQ-23, S6).
+3. It must fit G10: the real gateway is reached only through configuration.
+
+- **A. A local implementation inside the service, chosen by a Spring profile.**
+  - *How it works:* under the profile `local`, `GatewaySyncClient` is a second implementation. It skips HTTP, reads the distinct `permission_name` values from `api_permissions`, and creates any missing realm roles through the Keycloak admin client. A local-only endpoint, registered only under that profile, sets it to fail or succeed.
+  - *Trade-offs:*
+    - There is no extra container or code base.
+    - The real HTTP client is never run locally: its URL, authentication, timeouts and status mapping.
+    - The local service account needs the right to create realm roles, which the shared environments' account doesn't get.
+    - A failure switch lives inside the service, even if only under one profile.
+  - *Fails when:* the HTTP client has a bug that only the real gateway exposes, or the `local` profile is switched on somewhere it shouldn't be.
+- **B. A stand-in gateway in its own container.**
+  - *How it works:* a small HTTP server in the compose file, built from a separate module in the `cce-admin-service` repository. It answers `POST /api/permissions/sync-to-keycloak` by reading `api_permissions` and creating missing realm roles in Keycloak. It has a control endpoint (`PUT /_stub/mode` with `ok` or `fail`) that tests flip, and the service reaches it through `GATEWAY_BASE_URL`.
+  - *Trade-offs:*
+    - The service runs exactly the code path it runs against the real gateway.
+    - There's a second small code base, with its own Keycloak credentials, to maintain and test.
+    - It copies the *assumed* gateway contract (GW-1, GW-4), so it can drift from the real one.
+  - *Fails when:* the real gateway behaves differently from the GW-1 assumption. Everything passes locally and fails in the first shared environment.
+- **C. WireMock for the HTTP call, with realm roles created by test setup.**
+  - *How it works:* a WireMock container answers the sync call, and its standard admin API switches between success and failure at runtime. Nothing creates realm roles on sync. Instead, the E2E setup and anyone doing a manual demo create the realm role through the Keycloak Admin API before assigning a new role.
+  - *Trade-offs:*
+    - No custom server code, and the real HTTP client still runs.
+    - S3's "gateway sync triggered so the realm role exists" is never shown locally.
+    - A role created in the console can't be assigned until someone creates its realm role by hand. The console's browser tests (CUJ 3, then CUJ 5) would need Keycloak steps outside the console.
+  - *Fails when:* someone does a local demo or a browser test that creates and then assigns a role through the console alone. It hits `ROLE_NOT_SYNCED`.
+
+Which option should the design use for OQ-5?
+- A: a local implementation inside the service, under a profile
+- B: a stand-in gateway container with a control endpoint
+- C: WireMock, with realm roles created by test setup
+````
+
+### H-021 · 2026-11-10 13:13 UTC · EGM session turn · Fresh draft admin-service, turn 9: OQ-5 = B (stand-in gateway container); accept DELETE plan
+
+- **Session:** `d8132724-9fe1-46b3-8537-799ad75e43bb` (resumed)
+- **Answers:** the question at the end of H-020 (see [QA.md](QA.md))
+- **Took:** 1.2 min · 7 model turns · est. $3.86 · output tokens 7,258
+- **Ran:** Claude Code 2.1.319 (Claude Code) headless, model `claude-opus-5-5`, effort `high`, permission mode `acceptEdits`
+- **Result:** ok
+- **Files changed:** `egm/admin-service/design_draft.md` (changed)
+
+**Input** (sent by the orchestrating Claude session):
+
+````text
+B: a stand-in gateway container with a control endpoint.
+
+Reasons:
+- Locally the service runs exactly the code it runs against the real gateway: the URL, authentication, timeouts and status mapping in GatewaySyncClient.
+- The production artifact carries no failure switch and no local-only endpoint.
+- A copies the same assumed gateway behaviour inside the service, so it has the same drift risk as B, plus the risks above.
+Constraints on the stand-in:
+- Keep it minimal. Use plain Java 21 with the JDK's built-in HTTP server, a JDBC read of api_permissions, and Keycloak admin REST calls. No web framework. It lives in its own folder and module inside cce-admin-service/, built and started by the M0 compose file.
+- It implements only the assumptions this design states under GW-1 and GW-4, and its README says plainly that it is a stand-in, not the gateway.
+- It never creates, changes or deletes Keycloak's built-in realm roles (default-roles-<realm>, offline_access, uma_authorization), and it never deletes SUPER_ADMIN.
+- Its control endpoint (PUT /_stub/mode with ok or fail) is reachable only on the local compose network and from the host, and it needs no token. It holds no data a test could leak.
+
+Your plan for DELETE /roles/:id is accepted: remove the role's rows, run the sync when the role had rows, audit it as ROLE_SYNC_REQUESTED, and return 502 with partialState when that sync fails, because the next successful GLOBAL sync clears the leftover. The 502 message says so. Name the console context for it so the admin-ui design can show it.
+````
+
+**Output** (final reply of the headless session):
+
+````markdown
+I've recorded OQ-5 as **AD-11** and your role-delete plan as **AD-12** in [design_draft.md](/home/jayaprakashn/Documents/workspace/elephant-goldfish-trial/egm/admin-service/design_draft.md).
+
+**One limit I added to the stand-in.** It tags every realm role it creates with the attribute `cce-managed=true`, and it deletes only tagged roles. A Keycloak realm can hold roles this module never created, and "delete every realm role with no rows" would remove those too. GW-4 now states the same assumption for the real gateway, so the owners can confirm or correct it.
+
+**The console context you asked for.** `partialState` now carries an `operation` field (`ROLE_DELETE`, `ROLE_PERMISSIONS_SAVE`, `USER_CREATE` and so on). A new table maps each operation to its endpoint, the console screen that shows it, and what is saved plus the next step. For a role delete, that is the Roles list delete action, with the "realm role may remain until the next successful sync" message.
+
+**The GW-1 assumptions are now written down:**
+- The sync request has no body.
+- Any 2xx status counts as success.
+- The scope defaults to `GLOBAL`.
+- Five settings can change without a code change.
+- A request body or a per-role parameter would still need code. G10 can't promise more than that.
+
+---
+
+**OQ-6: how does the service authenticate to the gateway's sync endpoint?** No input documents this. The gateway checks JWTs, and its doc says it gets the caller's permissions from the token. Whichever option you choose, the stand-in (AD-11) checks the same thing locally, so the client code is exercised.
+
+- **A. A service-account token, through client credentials.**
+  - *How it works:* the service gets a token for its own confidential client `cce-admin-service`, the same client it uses for the Keycloak Admin API, and sends it as `Bearer`. It caches the token until 30 seconds before expiry. The service account holds a realm role, `CCE_ADMIN_SERVICE`, and a seeded `api_permissions` row grants that role `POST /api/permissions/sync-to-keycloak`.
+  - *Trade-offs:*
+    - The sync doesn't depend on who called and doesn't need the caller's token to still be valid.
+    - Granting `SUPER_ADMIN` rights to the endpoint isn't needed.
+    - It adds a second seeded role and permission row, and a token audience mapper (`gateway-service`) on the service's client.
+    - The gateway's logs show the service, not the administrator. Our `audit_log` still records the administrator.
+  - *Fails when:* the gateway doesn't route `/api/permissions/**` through its normal JWT and `api_permissions` check, or it expects a person's token there.
+- **B. Forward the administrator's own token.**
+  - *How it works:* `GatewaySyncClient` sends the `Authorization` header of the request it is handling. The gateway authorizes the administrator by their roles, so `SUPER_ADMIN`'s seeded rows must also include `POST /api/permissions/sync-to-keycloak`, outside `/admin/v1/**`.
+  - *Trade-offs:*
+    - No extra credentials or role.
+    - The gateway sees the real person.
+    - Every role that may save permissions must also be granted the gateway endpoint, and the two can drift apart. That creates an "allowed to save, not allowed to sync" state that returns 502 on every save.
+    - The sync can only ever run inside a user request.
+  - *Fails when:* an administrator holds a non-system role that is allowed to save permissions but lacks the gateway row. Every save then fails with 502.
+- **C. A shared secret in a header.**
+  - *How it works:* the service sends a fixed header (name and value from `GATEWAY_SYNC_HEADER_NAME` and `GATEWAY_SYNC_HEADER_VALUE`). The gateway is expected to check it.
+  - *Trade-offs:*
+    - The simplest client, with no token handling.
+    - It needs the gateway to support a check we have no evidence of.
+    - It adds a long-lived secret to rotate in every environment.
+    - It sits outside the JWT model the gateway uses everywhere else.
+  - *Fails when:* the gateway only accepts JWTs, which is what everything in its doc suggests.
+
+Which option should the design use for OQ-6?
+- A: service-account token (client credentials)
+- B: forward the administrator's token
+- C: shared secret in a header
+````
+
+### H-022 · 2026-11-10 13:15 UTC · EGM session turn · Fresh draft admin-service, turn 10: OQ-6 = A (client credentials); seed CCE_ADMIN_SERVICE; bootstrap order
+
+- **Session:** `d8132724-9fe1-46b3-8537-799ad75e43bb` (resumed)
+- **Answers:** the question at the end of H-021 (see [QA.md](QA.md))
+- **Took:** 0.7 min · 1 model turns · est. $4.00 · output tokens 3,931
+- **Ran:** Claude Code 2.1.319 (Claude Code) headless, model `claude-opus-5-5`, effort `high`, permission mode `acceptEdits`
+- **Result:** ok
+- **Files changed:** none
+
+**Input** (sent by the orchestrating Claude session):
+
+````text
+A: service-account token (client credentials).
+
+Reasons:
+- The sync does not depend on the caller's token or on who called.
+- There is no "allowed to save, not allowed to sync" drift between roles (B).
+- It stays inside the JWT model the gateway uses everywhere else (C needs a check we have no evidence of).
+Forwarding the caller's token is recorded as the fallback, under the gateway owners' questions, if they say the endpoint expects a person's token. That fallback is a code change and not a configuration option. Keep the client to one mode.
+
+Two things to close:
+1. Seed CCE_ADMIN_SERVICE as an `is_system` row in `roles` (immutable under AD-07, never assignable to people through the API), so its api_permissions row is owned by a role and does not show up in the unowned-rows review query.
+2. A bootstrap ordering problem. The gateway creates realm roles only during a sync, but the service account needs the CCE_ADMIN_SERVICE realm role before its first sync is authorized. Put this step in the bootstrap steps for a new environment: an operator creates the CCE_ADMIN_SERVICE realm role and maps it to the service account, or a gateway sync is run once by other means. Locally, the realm import creates the role and the mapping. Say which, under OQ-7 if that is where it fits.
+````
+
+**Output** (final reply of the headless session):
+
+````markdown
+I haven't changed any files this turn. Your first item contradicts a decision already recorded, so EGM requires me to stop and ask first. OQ-6 itself (A, with forwarding the caller's token kept only as a code-change fallback) has no problems, and I'll record it once this is resolved.
+
+**The contradiction.** AD-07 says: "`POST /roles/:id/sync` and assigning a system role to users are still allowed." Your item 1 makes `CCE_ADMIN_SERVICE` a system role that can *never* be assigned to people. Both can be true, but only with a rule that tells the two system roles apart. That rule is a data-model choice, and the console depends on it: its role pickers on the user form and the Users list filter need to know not to offer that role.
+
+**How I'd write your item 2, recorded together with the answer below:**
+- **New environment:** the bootstrap steps (section 9, next to the first administrator from OQ-7) get a step that runs *before* the service's first deploy. An operator either creates the realm role `CCE_ADMIN_SERVICE` and maps it to the `service-account-cce-admin-service` user, or has the gateway owners run one sync by their own means. Until that step is done, every permission save returns 502 with `failedStep = GATEWAY_SYNC`. That is visible and recoverable, not silent.
+- **Locally:** the realm import creates the role and the mapping. The stand-in gateway checks the token like the gateway would. It verifies the RS256 signature against the realm's JWKS with JDK classes only, checks `iss`, `aud` and `exp`, and checks that a role in the token has an `api_permissions` row allowing `POST /api/permissions/sync-to-keycloak`. A misconfigured service account therefore fails locally too.
+- **Gateway owners' questions:** GW-6 records the fallback. If the endpoint expects a person's token, `GatewaySyncClient` changes to forward the caller's token. That is a code change, and the client keeps one mode.
+
+---
+
+**How should the design keep `CCE_ADMIN_SERVICE` from being assigned to people, when other system roles can be?**
+
+- **A. A new column, `roles.is_assignable`.**
+  - *How it works:* `BOOLEAN NOT NULL DEFAULT true`. The seed sets it to `false` for `CCE_ADMIN_SERVICE` and `true` for `SUPER_ADMIN`. No endpoint can set it. The Role resource exposes it as `isAssignable`. Assigning a role with `false` returns 409 `ROLE_NOT_ASSIGNABLE` *(added)* in `POST /users` and `PUT /users/:id/roles`, with `details` naming the role.
+  - *Trade-offs:* the rule lives in data, the console hides the role from pickers by reading the flag, and any later machine role works the same way. It costs one more column, field and error code. AD-07 is amended to "system roles are assignable unless `is_assignable` is false".
+  - *Fails when:* someone adds a machine role later through a migration and forgets to set the flag. People can then be given it.
+- **B. A role name in configuration.**
+  - *How it works:* the setting `SERVICE_ACCOUNT_ROLE_NAME` (default `CCE_ADMIN_SERVICE`) names the one role that can't be assigned. The service rejects it with 409 `ROLE_NOT_ASSIGNABLE`, and the Role resource still carries a computed `isAssignable` for the console.
+  - *Trade-offs:* no schema change. The rule depends on a setting matching a row, and only one such role can exist.
+  - *Fails when:* the setting and the seeded role name differ in some environment. Assignment is then blocked for the wrong role, or for none.
+- **C. Hide the role from the API.**
+  - *How it works:* `GET /roles` leaves out `CCE_ADMIN_SERVICE`, and `GET /roles/:id` and every `/roles/:id/...` call on its id return 404 `ROLE_NOT_FOUND`. Assigning its id gets 400 `VALIDATION_ERROR`, as an unknown id. It exists only in the database, in Keycloak and in the seed.
+  - *Trade-offs:* the simplest console, which never sees it. Administrators and auditors can't see through the API or console which APIs the service account may call. Its rights are visible only in SQL, which is what this module exists to replace.
+  - *Fails when:* an auditor asks what the service account is allowed to do. The answer needs database access.
+
+Which option should the design use?
+- A: a column `is_assignable`
+- B: a role name in configuration
+- C: hide the role from the API
+````
+
+### H-023 · 2026-11-10 13:16 UTC · EGM session turn · Fresh draft admin-service, turn 11: is_assignable column (A); record OQ-6 and bootstrap step
+
+- **Session:** `d8132724-9fe1-46b3-8537-799ad75e43bb` (resumed)
+- **Answers:** the question at the end of H-022 (see [QA.md](QA.md))
+- **Took:** 0.9 min · 7 model turns · est. $4.29 · output tokens 6,168
+- **Ran:** Claude Code 2.1.319 (Claude Code) headless, model `claude-opus-5-5`, effort `high`, permission mode `acceptEdits`
+- **Result:** ok
+- **Files changed:** `egm/admin-service/design_draft.md` (changed)
+
+**Input** (sent by the orchestrating Claude session):
+
+````text
+A: a column `is_assignable`.
+
+Reasons:
+- The rule lives in data that the console can read (pickers and the Users filter hide roles where it is false).
+- It works for later machine roles too.
+- B depends on a setting matching a row in every environment.
+- C hides the service account's rights from the API that exists to replace SQL.
+Amend AD-07 as you wrote. To cover the failure you name, the seed migration sets is_assignable explicitly on every system role it inserts, and a migration test asserts that every is_system role has an explicit value.
+
+Your write-up of item 2 (the bootstrap step before the first deploy, with a 502 until it is done, the realm import locally, the stand-in checking the token like the gateway would, and GW-6 for the fallback) is accepted as you wrote it. Record OQ-6 = A with it.
+````
+
+**Output** (final reply of the headless session):
+
+````markdown
+I've recorded **AD-13** (OQ-6, with the bootstrap order and the stand-in's token check), **AD-14** (`is_assignable`, with the no-default change above), **GW-6**, the amended AD-07, and the new error code `ROLE_NOT_ASSIGNABLE` in [design_draft.md](/home/jayaprakashn/Documents/workspace/elephant-goldfish-trial/egm/admin-service/design_draft.md).
+
+---
+
+**OQ-7 (answers part of AS-REQ-22 and AS-REQ-24): how is the first `SUPER_ADMIN` created in each environment?** (PRD §12)
+
+That administrator needs three things:
+- a Keycloak account,
+- the `SUPER_ADMIN` realm role, which exists only after a gateway sync of `SUPER_ADMIN`'s seeded `/admin/v1/**` rows, and that needs AD-13's bootstrap step first,
+- an `ACTIVE` local `users` row with a `user_roles` row. Without that row, B-12 returns 403 on every call, so nobody can create the row through the API.
+
+Locally, the realm import can create the account, its fixed id, the realm role and the mapping. Whichever option you choose, the test administrator's credentials reach tests through the environment variables `CCE_TEST_ADMIN_USERNAME` and `CCE_TEST_ADMIN_PASSWORD` from the git-ignored `.env` (AS-REQ-24). Below, "the realm import" means only this local setup.
+
+- **A. A Flyway migration with placeholders.**
+  - *How it works:* a migration inserts the `users` row and its `SUPER_ADMIN` `user_roles` row from Flyway placeholders (`BOOTSTRAP_ADMIN_KEYCLOAK_ID`, `_USERNAME`, `_EMAIL`), and writes a `USER_CREATED` audit row with the actor `system:bootstrap`. The operator creates the Keycloak user, maps the realm role and copies its id first. Locally, the realm import fixes the user's id so the placeholder is known in advance.
+  - *Trade-offs:* runs exactly once and is recorded in the migration history. No startup code and no Keycloak call from the service. Every environment must supply the placeholders before the first migration, or migration fails. A wrong id can't be fixed by running again, because migrations don't re-run, so it needs hand-written SQL.
+  - *Fails when:* the operator copies the wrong id, or the Keycloak user is recreated later with a new id. The local row then points at nobody, and there is no administrator.
+- **B. A bootstrapper that runs at startup.**
+  - *How it works:* when the service starts, if no `ACTIVE` user holds `SUPER_ADMIN` and `BOOTSTRAP_ADMIN_USERNAME` is set, it:
+    1. looks up that Keycloak user by username through the Admin API,
+    2. adds the `SUPER_ADMIN` realm role mapping (if the realm role is missing, it runs one gateway sync first),
+    3. inserts the `users` and `user_roles` rows,
+    4. writes a `USER_CREATED` audit row with the actor `system:bootstrap`.
+
+    If any `ACTIVE` `SUPER_ADMIN` exists, it does nothing.
+  - *Trade-offs:*
+    - It can run again safely and needs no copied ids.
+    - It uses the same Keycloak code as `POST /users`.
+    - It is audited.
+    - It adds a code path that writes data and calls Keycloak at startup. Startup then depends on Keycloak, but only while no administrator exists.
+    - Whoever controls the variable names the first administrator. AD-07's `LAST_SYSTEM_ADMIN` rule keeps the "no administrator" state from coming back through the API.
+  - *Fails when:* the variable is left set to a former employee's username in an environment where every administrator was later removed by SQL. Then on the next start they become administrator again.
+- **C. An operator runbook with SQL.**
+  - *How it works:* section 9 gives a SQL script that the operator runs with psql after creating the Keycloak user. It inserts `users`, `user_roles` and an `audit_log` row. Locally, a compose init script runs the same SQL after Flyway.
+  - *Trade-offs:* no service code. Fully manual and easy to get wrong: wrong id, forgotten audit row. It is exactly the hand-edited SQL the PRD wants to replace (§2), though only once per environment. Locally, the init script has to wait for Flyway, which compose can't sequence without extra scripting.
+  - *Fails when:* the script is edited on the spot and skips the audit row. The first grant of administrator access then has no record.
+
+Which option should the design use for OQ-7?
+- A: a Flyway migration with placeholders
+- B: a bootstrapper at startup
+- C: an operator runbook with SQL
+````
+
+### H-024 · 2026-11-10 13:17 UTC · EGM session turn · Fresh draft admin-service, turn 12: OQ-7 = B (startup bootstrapper with two guards)
+
+- **Session:** `d8132724-9fe1-46b3-8537-799ad75e43bb` (resumed)
+- **Answers:** the question at the end of H-023 (see [QA.md](QA.md))
+- **Took:** 0.9 min · 4 model turns · est. $4.55 · output tokens 5,087
+- **Ran:** Claude Code 2.1.319 (Claude Code) headless, model `claude-opus-5-5`, effort `high`, permission mode `acceptEdits`
+- **Result:** ok
+- **Files changed:** `egm/admin-service/design_draft.md` (changed)
+
+**Input** (sent by the orchestrating Claude session):
+
+````text
+B: a bootstrapper at startup.
+
+Reasons:
+- It is safe to run again.
+- No ids are copied by hand.
+- It reuses the Keycloak code of POST /users, and it is audited.
+- A cannot be corrected by running it again when an id is wrong.
+- C is the hand-edited SQL the PRD wants to replace, and it is easy to run without the audit row.
+Two guards for the failure you name:
+- The bootstrapper refuses a Keycloak user that is disabled, or that has no verified email when email verification is required. It logs an error and does nothing.
+- On every start where BOOTSTRAP_ADMIN_USERNAME is set and an ACTIVE SUPER_ADMIN already exists, it logs a warning that the variable is no longer needed and should be removed. The bootstrap steps tell operators to unset it after the first start.
+Locally, the realm import creates the test administrator (username and password from the git-ignored .env through placeholders, AS-REQ-24), and the compose file sets BOOTSTRAP_ADMIN_USERNAME to that username.
+````
+
+**Output** (final reply of the headless session):
+
+````markdown
+I've recorded OQ-7 as **AD-15** in [design_draft.md](/home/jayaprakashn/Documents/workspace/elephant-goldfish-trial/egm/admin-service/design_draft.md), with both of your guards: it refuses disabled or unverified users, and it warns while the variable is still set. AS-REQ-22 and AS-REQ-24 now point to it.
+
+**Three things I decided in AD-15 myself. Check them:**
+- **No variable, no administrator:** if `BOOTSTRAP_ADMIN_USERNAME` isn't set and there's no administrator, the service logs an error and **still starts**. That keeps `/health` and diagnosis available. The cost is a running service that nobody can administer, which only shows up in the logs.
+- **Bootstrap failure:** if a Keycloak or database step fails during bootstrap, the service also logs and still starts. It doesn't crash-loop. Restarting it runs the bootstrap again.
+- **Existing local row:** if the named Keycloak user already has a local row, for example one set `INACTIVE` by SQL, the bootstrapper sets it back to `ACTIVE` instead of inserting a duplicate. It writes `USER_ROLES_UPDATED` in that case.
+
+---
+
+**OQ-9: how does every cce-insights-ui role get permission to call `GET /admin/v1/me/menus`?** (PRD §12) Without a matching `api_permissions` row, the gateway returns 403, and that console can't load its sidebar (S1). The seed grants nothing to console roles (AD-03), so every role an administrator creates starts without this row. `SUPER_ADMIN` is already covered by `/admin/v1/**`. `CCE_ADMIN_SERVICE` isn't a console role.
+
+- **A. The service maintains the row on every role automatically.**
+  - *How it works:* every non-system role always holds `GET /admin/v1/me/menus`, and creating the role adds it. `PUT /roles/:id/permissions` adds it back if the body leaves it out. `GET /roles/:id/permissions` returns it flagged `"implicit": true`, and the console shows it as read-only.
+  - *Trade-offs:*
+    - Nobody can forget it.
+    - Every role has at least one row, so each gets a realm role after its first sync. That makes "a role with no rows can't be assigned" disappear for ordinary roles.
+    - Replace semantics are no longer exact, because the stored set can contain a row the body didn't send.
+    - The console needs an `implicit` field.
+    - A role created purely for API access, which never uses a console, still gets the row.
+    - The service's `ROLE_IN_USE` rule for an empty permission set (AD-10) can never fire for non-system roles.
+  - *Fails when:* a team wants a role that must not see any menu tree. It can't express that, though the effect is small: the role would see an empty tree.
+- **B. Explicit rows only, with a warning when the row is missing.**
+  - *How it works:* the service adds nothing. `PUT /roles/:id/permissions` returns a warning, `ME_MENUS_NOT_ALLOWED` *(added)*, when no saved row allows `GET /admin/v1/me/menus` under the GW-3 matching rules. The console shows it next to the save result.
+  - *Trade-offs:* replace semantics stay exact, and every row is one an administrator typed. Administrators can still ignore the warning, and a role with *no* rows gets no save, so no warning, until someone adds rows.
+  - *Fails when:* an administrator assigns a new console role after saving only menus, or after ignoring the warning. The user signs in to cce-insights-ui and the sidebar fails with 403.
+- **C. A shared seeded role, `CONSOLE_USER`.**
+  - *How it works:* a system role, assignable and immutable (AD-07), seeded with `GET /admin/v1/me/menus` (and `GET /admin/v1/me`). Every console user is given it alongside their functional roles. Functional roles hold only their own API rows.
+  - *Trade-offs:*
+    - One row in one place.
+    - Replace semantics stay exact.
+    - The base access is visible as its own role.
+    - Every user needs one more role assigned, and nothing in the API enforces it.
+    - It also grants no menus, because it is immutable, so it can't double as a "default sidebar".
+  - *Fails when:* an administrator creates a user with only a functional role. That user's sidebar fails with 403, which is the same failure as in B, moved from roles to users.
+
+Which option should the design use for OQ-9?
+- A: the service keeps the row on every role automatically
+- B: explicit rows only, with a warning when it is missing
+- C: a shared seeded role, `CONSOLE_USER`
+````
+
+### H-025 · 2026-11-10 13:19 UTC · EGM session turn · Fresh draft admin-service, turn 13: OQ-9 = A (implicit /me and /me/menus rows)
+
+- **Session:** `d8132724-9fe1-46b3-8537-799ad75e43bb` (resumed)
+- **Answers:** the question at the end of H-024 (see [QA.md](QA.md))
+- **Took:** 1.0 min · 6 model turns · est. $4.83 · output tokens 5,761
+- **Ran:** Claude Code 2.1.319 (Claude Code) headless, model `claude-opus-5-5`, effort `high`, permission mode `acceptEdits`
+- **Result:** ok
+- **Files changed:** `egm/admin-service/design_draft.md` (changed)
+
+**Input** (sent by the orchestrating Claude session):
+
+````text
+A: the service keeps the row on every non-system role automatically. One extension:
+
+The implicit set is two rows: GET /admin/v1/me and GET /admin/v1/me/menus. /me only returns the caller's own profile, and the admin console's header needs it for any administrator role that is not SUPER_ADMIN.
+
+Rules to write down:
+- PUT /roles/:id/permissions replaces the explicit rows. The implicit rows are always present. If the body includes a row identical to an implicit row, it is accepted and not duplicated.
+- GET returns the implicit rows with "implicit": true. The console shows them read-only and leaves them out of what it sends.
+- With implicit rows, AD-10's ROLE_IN_USE rule for an empty permission set no longer applies to non-system roles. Say so in AD-10 rather than leaving the rule unreachable.
+- The audit row's after_state lists explicit and implicit rows separately.
+
+Reasons:
+- Nobody can forget the row, which is the failure PRD §12 names.
+- Every ordinary role then has at least one row, so it gets a realm role after its first sync. That removes the "role with no rows can never be assigned" trap.
+- B's warning can be ignored, and a role with no rows gets no warning at all.
+- C moves the same failure from roles to users.
+
+Your three AD-15 choices (start without an administrator and log it; start and log when bootstrap fails; re-activate an existing local row) are accepted. The disabled-user guard already covers re-activating a former employee's row, because an INACTIVE or LOCKED user's Keycloak account is disabled.
+````
+
+**Output** (final reply of the headless session):
+
+````markdown
+I've recorded OQ-9 as **AD-16** in [design_draft.md](/home/jayaprakashn/Documents/workspace/elephant-goldfish-trial/egm/admin-service/design_draft.md):
+- **AD-10:** amended to drop the empty-set rule, with the reason, so nothing is left unreachable.
+- **`ROLE_IN_USE`:** now covers role delete only.
+- **`ROLE_CREATE`:** added to the partial-failure operations table.
+
+---
+
+**OQ-10, the last open author question: does the service check `api_permissions` itself?**
+
+Today the gateway is the only permission check. B-10 to B-12 ask the service to check the token and the local user's standing, nothing more.
+
+Locally there is no gateway, so as it stands, any `ACTIVE` user with any role can call every admin endpoint on port 8085. A clinician holding only a console role could create an administrator. In shared environments the same is true for anything that reaches the service without passing through the gateway. PRD §9 forbids that path, but nothing in the service enforces it.
+
+- **A. No permission check in the service.**
+  - *How it works:* the pipeline stays at steps 1 to 4 and 6 of section 3. 403 `FORBIDDEN` from the service means only "no local user, or not `ACTIVE`".
+  - *Trade-offs:*
+    - It matches B-10 to B-12 literally.
+    - Permission rules are kept in one place, the gateway.
+    - There is no second matcher that could disagree with the gateway.
+    - Defence in depth (PRD §9) covers only authentication.
+    - Locally, the hard control is never exercised. G9's offline row check is the only evidence.
+  - *Fails when:* a network rule is wrong and the service can be reached without the gateway, or someone uses a console role's token against port 8085 locally. Either way, any active user can administer.
+- **B. The service applies the same `api_permissions` rules as the gateway.**
+  - *How it works:* a new step 5 loads the rows whose `permission_name` is one of the caller's token roles and matches the request's method and path against them. It uses the same matcher, with the GW-3 assumptions, that G9's offline check uses. No match returns 403 `FORBIDDEN`. Rows are read through a cache that expires after `PERMISSION_CACHE_TTL` (default 30 s), and the service clears it after its own permission writes.
+  - *Trade-offs:*
+    - Real defence in depth.
+    - Locally, the hard control is enforced and testable, which turns part of G9's gap into a live check.
+    - 403 for "role lacks permission" is produced and tested in the service (Appendix B).
+    - If the GW-3 assumption is wrong, the service and the gateway disagree. The likely result is a 403 from the service for a call the gateway allowed. That is a visible, fail-closed error, but a confusing one.
+  - *Fails when:* the gateway rewrites the path before proxying, or matches patterns differently. Legitimate calls are then refused until the matcher or the rows are fixed.
+- **C. A coarse role check.**
+  - *How it works:* the service checks only two levels. `GET /me` and `GET /me/menus` need a valid, active caller. Every other endpoint needs one of the roles listed in `ADMIN_ROLES` (default `SUPER_ADMIN`). No other match returns 403 `FORBIDDEN`.
+  - *Trade-offs:*
+    - Simple and independent of GW-3.
+    - Blocks console users from admin endpoints, both locally and if the gateway is bypassed.
+    - It doesn't follow the per-endpoint rules administrators set in `api_permissions`. A non-`SUPER_ADMIN` administrator role, like the one AD-16's `/me` reasoning expects, also needs adding to `ADMIN_ROLES` in configuration, which can drift from the data.
+  - *Fails when:* an administrator creates a narrower admin role through the API, for example a "user manager" role. The gateway allows its calls, and the service refuses them until someone edits `ADMIN_ROLES`.
+
+Which option should the design use for OQ-10?
+- A: no permission check in the service
+- B: the service applies the same `api_permissions` rules as the gateway
+- C: a coarse role check against `ADMIN_ROLES`
+````
+
+### H-026 · 2026-11-10 13:27 UTC · EGM session turn · Fresh draft admin-service, turn 14: OQ-10 = B (service enforces api_permissions; one matcher; switch)
+
+- **Session:** `d8132724-9fe1-46b3-8537-799ad75e43bb` (resumed)
+- **Answers:** the question at the end of H-025 (see [QA.md](QA.md))
+- **Took:** 7.7 min · 13 model turns · est. $6.65 · output tokens 54,553
+- **Ran:** Claude Code 2.1.319 (Claude Code) headless, model `claude-opus-5-5`, effort `high`, permission mode `acceptEdits`
+- **Result:** ok
+- **Files changed:** `egm/admin-service/design_draft.md` (changed)
+
+**Input** (sent by the orchestrating Claude session):
+
+````text
+B: the service applies the same api_permissions rules as the gateway. Three conditions:
+
+1. One matcher. The same class decides the step-5 check and G9's offline row check, so the two cannot disagree with each other. Only the GW-3 assumption can be wrong.
+2. A switch. `PERMISSION_CHECK_ENABLED` (default true) turns step 5 off without a code change, for an environment where the gateway's real matching turns out to differ (G10). Startup logs the setting. Turning it off logs a warning that only the gateway now enforces permissions.
+3. The caller's roles for step 5 come from the token (JWT_ROLES_CLAIM_PATH), as they do at the gateway, not from user_roles. Public paths (health, OpenAPI, Swagger UI) skip the check. A refusal is 403 FORBIDDEN, with a message that says the role has no permission for this method and path. Clients branch on the code, not the message.
+
+Reasons:
+- Real defence in depth (PRD §9).
+- Locally the hard control is enforced and testable, which turns part of G9's gap into a live check.
+- The 403 "role lacks permission" in Appendix B is then produced and tested in the service.
+- A disagreement with the gateway fails closed and visibly.
+- C drifts from the data as soon as an administrator creates a narrower admin role.
+
+After this, put the full Technical Plan to me for approval as one section, as the gate asks, once sections 4.4 to 10 are written. The console session is waiting for the complete contract (§4) and M0 (§9) before it writes its implementation plan.
+````
+
+**Output** (final reply of the headless session):
+
+````markdown
+The Technical Plan is written in full in [design_draft.md](/home/jayaprakashn/Documents/workspace/elephant-goldfish-trial/egm/admin-service/design_draft.md). I recorded OQ-10 as **AD-17**, with your three conditions. Sections 4 to 10 are new, and there is a short CUJ section, from the EGM template, that ties S1 to S6 to the API. No open author questions remain.
+
+**Weak points to judge before approving:**
+- **The last-administrator lock can stall user changes.** Status and role changes hold a database transaction open across their Keycloak calls, which can take up to 10 seconds each when they time out. So a slow Keycloak blocks every other status or role change in the meantime. I accepted that because this is low-traffic admin work, but it's a real limit.
+- **Permission changes reach other instances late.** Step 5's permission snapshot is held separately in each running copy of the service. With several copies, a saved permission takes up to `PERMISSION_CACHE_TTL` (30 seconds) to take effect on the others. Only the copy that saved it clears its snapshot at once.
+- **The E2E tests use the Keycloak master admin.** To sign in as users a scenario created, the tests set those users' passwords and clear their required actions through the master admin account. The service never does this. It is a deliberate test-only shortcut, and it means the set-password email itself is only checked as "arrived in Mailpit".
+
+**Choices I made without a gate, all with one defensible answer.** Check them, because the console depends on several:
+- **`/me` roles:** they come from the token and are filtered to roles that exist in `roles`. That matches the step 5 permission check and the gateway.
+- **Role names:** `POST /roles` refuses a name that already has unowned `api_permissions` rows, so a new role never takes those rows over (GW-5).
+- **Menu visibility:** a `DETAIL` menu appears in `/me/menus` only when its parent is granted and active. That is my reading of PRD §4's "inherits its parent's visibility".
+- **Reset-password:<redacted> allowed for any status. Health returns B-05's shape without the envelope.
+- **Join tables:** `user_roles` and `role_menus` get their own UUID primary keys to meet B-01 literally.
+- **Seed icons:** the icon for each seeded menu is my choice. The insights-ui docs list six icons without saying which link uses which.
+- **Local environment:** ports 5433 (Postgres), 8180 (Keycloak at `/auth`), 8090 (stand-in) and 8025 (Mailpit), all bound to `127.0.0.1`. Two clients exist only in the local realm: `cce-e2e` and `cce-gateway-stub`.
+
+**For the console session:** §4.6 answers AS-REQ-01 to AS-REQ-24 one by one, and §9.3 gives the M0 values it needs.
+
+**Question:** I've drafted the Technical Plan in `design_draft.md`. Please review. How would you like to proceed?
+- Approve the Technical Plan and proceed to Alternatives Considered
+- Request revisions to the Technical Plan (inline comments or write-in)
+````
+
+### H-027 · 2026-11-10 13:29 UTC · EGM session turn · Fresh draft admin-service, turn 15: approve Technical Plan; proceed to Alternatives
+
+- **Session:** `d8132724-9fe1-46b3-8537-799ad75e43bb` (resumed)
+- **Answers:** the question at the end of H-026 (see [QA.md](QA.md))
+- **Took:** 1.3 min · 5 model turns · est. $7.15 · output tokens 8,319
+- **Ran:** Claude Code 2.1.319 (Claude Code) headless, model `claude-opus-5-5`, effort `high`, permission mode `acceptEdits`
+- **Result:** ok
+- **Files changed:** `egm/admin-service/design_draft.md` (changed)
+
+**Input** (sent by the orchestrating Claude session):
+
+````text
+Approve the Technical Plan and proceed to Alternatives Considered.
+
+The three weak points you named are accepted, and each should be stated in Risks or Alternatives:
+- the last-administrator lock can stall user changes;
+- per-instance permission caches lag by up to PERMISSION_CACHE_TTL;
+- the E2E tests use the master admin to set passwords, as a test-only shortcut.
+The choices you made without a gate are accepted as well. That covers /me roles from the token filtered to known roles, the guard against role names that already own unowned rows, the DETAIL visibility rule, reset-password for any status, the health shape, UUID keys on the join tables, the seed icons, and the local ports and clients. Two notes:
+- The seed icons are the author's choice, because the inputs do not map them. Mark them as easy to change.
+- Keep the Keycloak image pinned to an exact tag, as you have it (26.4). Do not use a floating tag.
+
+The console session will now build its implementation plan against your §4 and §9.3. Do not change those sections' shapes from here on without telling me, so that I can pass the change on.
+````
+
+**Output** (final reply of the headless session):
+
+````markdown
+Alternatives Considered and a Non-Functional Requirements section are now in [design_draft.md](/home/jayaprakashn/Documents/workspace/elephant-goldfish-trial/egm/admin-service/design_draft.md). §4 and §9.3 are unchanged.
+
+**What I added:**
+- **Alternatives:** there was no brainstorm, so the alternatives are the options you rejected at each gate. Each one has its pros, cons and a "Rejected by author" reason.
+- **Two alternatives you didn't reject at a gate:**
+  - *Compensation*, meaning deleting the new Keycloak user when the database insert fails. It is marked as decided by the PRD (B-32, §9), not by you.
+  - *Always 502 when the set-password email fails.* You rejected this when you amended G5.
+- **Risks:** a "Risks accepted by the author" table holds your three accepted weak points. I added a fourth row for the gateway assumptions GW-1 to GW-6.
+- **Seed icons:** section 6 now marks them as your choice, because the inputs don't map icons to links. It also notes that `PUT /menus/:id` changes them with no migration.
+
+**Pushback on the image tag:** `quay.io/keycloak/keycloak:26.4` is not an exact tag. It follows every 26.4.x patch release, so it is a floating tag one level down. `postgres:16-alpine` and an untagged `axllent/mailpit` float too. To meet your "no floating tag" rule, I'll pin all three images to full patch versions in the Detailed Implementation, along with the Maven dependency versions. The tag lookup I tried needed network approval and wasn't run, so I'll ask for that lookup there rather than guess version numbers. That changes §9.1 only. It doesn't change the shapes in §4 or the values in §9.3 that the console uses.
+
+**Question:** I've drafted Alternatives Considered in `design_draft.md`. Please review. How would you like to proceed?
+- Approve Alternatives Considered and proceed to the Detailed Implementation
+- Request revisions to Alternatives Considered (inline comments or write-in)
+````
+
+### H-028 · 2026-11-10 13:38 UTC · EGM session turn · Fresh draft admin-ui, turn 8: contract complete; reconcile pending shapes; draft Detailed Implementation
+
+- **Session:** `02eb6e8f-75ce-4bca-bef2-98c5fc29ddf1` (resumed)
+- **Answers:** the question at the end of H-019 (see [QA.md](QA.md))
+- **Took:** 10.6 min · 12 model turns · est. $6.86 · output tokens 74,840
+- **Ran:** Claude Code 2.1.319 (Claude Code) headless, model `claude-opus-5-5`, effort `high`, permission mode `acceptEdits`
+- **Result:** ok
+- **Files changed:** `docs/designs/author-decisions.md` (changed), `egm/admin-ui/design_draft.md` (changed)
+
+**Input** (sent by the orchestrating Claude session):
+
+````text
+The admin-service contract is complete, and the author has approved it: egm/admin-service/design_draft.md, Technical Plan §3 (pipeline), §4.1–4.6 (conventions, error codes, pagination, resources, endpoints, and the answer to each AS-REQ in §4.6), and §9.3 (local values for the console). Read those sections there.
+
+Then, in one pass:
+1. Replace every "pending admin-service contract" marker in your draft with the settled shape, or with a reference to the section that settles it. Several answers change the console:
+   - roles carry isSystem, isAssignable, syncStatus, lastSyncAt and userCount;
+   - permission rows carry `implicit`, which the console shows read-only and never sends;
+   - user statuses are ACTIVE, INACTIVE and LOCKED, any change is allowed, and there are new 409s: LAST_SYSTEM_ADMIN, ROLE_NOT_SYNCED and ROLE_NOT_ASSIGNABLE;
+   - a 201 on user create can carry the ACTION_EMAIL_NOT_SENT warning;
+   - a menu is deactivated through PUT with isActive false;
+   - the operation names in partialState.
+   Where a settled answer changes a CUJ, a screen or the exit-check table, update it.
+2. Tell me in your reply if anything in the contract does not meet the console's needs. Do not adapt around it.
+3. Then draft the Detailed Implementation section (EGM Step 5) and put it to me at its gate.
+````
+
+**Output** (final reply of the headless session):
+
+````markdown
+I've rewritten [design_draft.md](egm/admin-ui/design_draft.md) in one pass against admin-service §3, §4.1–4.6 and §9.3. No "pending" markers are left, and the Detailed Implementation section is drafted.
+
+**Changes from the settled contract:**
+- **Roles:**
+  - Every role picker and the Users role filter show only roles with `isAssignable: true`.
+  - A role that isn't `SYNCED` gets a hint in the picker. The hint doesn't block the choice; the service decides with `ROLE_NOT_SYNCED`.
+  - Delete is hidden for system roles and disabled while `userCount > 0`.
+  - System roles are read-only everywhere except Re-sync.
+  - A sync now refreshes every role query, because under the default `GLOBAL` sync scope one sync can mark other roles `SYNCED` too.
+- **Permissions tab:** implicit rows sit in a read-only "Always included" table and are never sent. The sync badge reads `syncStatus` and `lastSyncAt` from the server. Save compares rows the same way the service decides a no-op.
+- **Users:**
+  - Rows and the edit page offer Activate, Deactivate and Lock for whichever statuses the user doesn't have.
+  - `LAST_SYSTEM_ADMIN` is shown next to the action that caused it.
+  - `ROLE_NOT_SYNCED` and `ROLE_NOT_ASSIGNABLE` are mapped from `roleIds[i]` back to the role names.
+  - A 201 carrying `ACTION_EMAIL_NOT_SENT` tells the admin to use Reset password.
+- **Menus:** Deactivate and Activate send `PUT` with `isActive` flipped and the other fields unchanged. Key and type are read-only on edit.
+- **`SyncFailedNotice`** now chooses its text and the screen it appears on by `partialState.operation`, for all nine operations.
+- **CUJs and exit checks:**
+  - CUJ 4 now includes the assignment being refused with `ROLE_NOT_SYNCED`, then succeeding after Re-sync.
+  - CUJ 6 covers activating the user again.
+  - C-05 now records that the service also checks permissions itself.
+- **Fixes to the draft:**
+  - The router is now `createBrowserRouter`, because `useBlocker` only works with a data router.
+  - The broken environment table is repaired.
+  - "Build and deployment" is moved back into the Technical Plan.
+
+**Where the contract falls short (not worked around):**
+- **CQ-1:** `PERMISSION_ALLOWED_METHODS` can be configured per environment, but no endpoint tells a client the list. The console offers the five defaults. In an environment that narrows the list, the form offers a method that the save then rejects with a 400 on the method field. It's minor, but the admin-service design should either fix the list in the contract or expose it.
+- **CQ-2 (gateway owners, not the contract):** until GW-2 is answered, `SYNCED` only means the sync call succeeded, not that the gateway is enforcing the new rows. The tab's help text says exactly that.
+
+Nothing else blocks the console.
+
+**Decisions I took in this pass without a gate:**
+- **No menu delete.** F-15 asks only for add, edit and deactivate, and deleting a menu also removes every role's grant of it. This is now a Non-Goal.
+- **15 icons in the console.** The icon map holds the 10 seed icons plus 5 more, and the icon field is a select limited to those.
+- **CUJ 2 checks Mailpit** to confirm the set-password email actually went out.
+- **Browser test data is created through the API.** Each test creates its starting roles and users with a token from the `cce-e2e` client. Only the steps being tested go through the console.
+- **Browser tests run one at a time**, because CUJ 4 switches the shared stand-in gateway to failing.
+- **A `verify` stage in the Dockerfile** runs lint and tests on `node:20-alpine` and checks that `dist/` has no MSW code. That is how Goal 8 is checked on Node 20.
+
+**About the Detailed Implementation section:** it lists 104 entries, every file under `cce-admin-ui/`. It also covers exact scripts and dependency ranges, the lint rules that enforce the layers, the contents of the contract module, a table of cases for each test file, the five Playwright specs, and a verification plan. Nothing outside `cce-admin-ui/` changes.
+
+Drafted Detailed Implementation in `design_draft.md`. Please review. How would you like to proceed?
+
+1. Approve Detailed Implementation and proceed to finalization
+2. Request revisions to Detailed Implementation (via inline comments or write-in)
+````
+
+### H-029 · 2026-11-10 13:39 UTC · EGM session turn · Fresh draft admin-service, turn 16: approve Alternatives; D-05 versions; draft Detailed Implementation
+
+- **Session:** `d8132724-9fe1-46b3-8537-799ad75e43bb` (resumed)
+- **Answers:** the question at the end of H-027 (see [QA.md](QA.md))
+- **Took:** 5.2 min · 14 model turns · est. $8.66 · output tokens 35,557
+- **Ran:** Claude Code 2.1.319 (Claude Code) headless, model `claude-opus-5-5`, effort `high`, permission mode `acceptEdits`
+- **Result:** ok
+- **Files changed:** `docs/designs/author-decisions.md` (changed), `egm/admin-service/design_draft.md` (changed)
+
+**Input** (sent by the orchestrating Claude session):
+
+````text
+Approve Alternatives Considered and proceed to the Detailed Implementation.
+
+Your pushback on the image tags is right: 26.4 floats as well. You do not need a network lookup. The author has checked exact versions and recorded them as D-05 in docs/designs/author-decisions.md: Spring Boot 3.5.16, springdoc 2.10.0, keycloak-admin-client 26.0.12, the PostgreSQL JDBC driver 42.7.14 for the stand-in, and Maven 3.9.16 through the Maven Wrapper. The images are postgres:16.15-alpine, quay.io/keycloak/keycloak:26.4.7, axllent/mailpit:v1.33.1, maven:3.9.16-eclipse-temurin-21 (build) and eclipse-temurin:21.0.13_9-jre-alpine (runtime). Each tag was checked against its registry today. Link D-05 from the Inputs table, use exactly these versions in §9.1 and the build files, and pin anything else you add in the same way.
+
+For the Detailed Implementation:
+- A fresh coding agent will build it one phase at a time. Each phase is a separate run that starts from the previous phase's result. So give each phase its exact file list, its exit check (the commands to run and what must pass), and the PRD requirement IDs it closes.
+- Order the phases so that mvn verify passes at the end of each one.
+- Keep the API-level E2E (S1 to S6) as the last phase, after the compose stack, the stand-in and the service all run.
+````
+
+**Output** (final reply of the headless session):
+
+````markdown
+The Detailed Implementation is in [design_draft.md](/home/jayaprakashn/Documents/workspace/elephant-goldfish-trial/egm/admin-service/design_draft.md). It has eight phases. Each one lists every file with its action and reason, the requirement IDs it closes, and an exit check of exact commands. `./mvnw verify` passes at the end of every phase, and the API-level E2E is phase 8, after the compose stack, the stand-in and the service all run in containers. I also added the Inputs table, which links D-05, and pinned the three images in §9.1 to D-05's tags.
+
+**Shared sections:** §4 and §9.3 are unchanged, so there's nothing to pass on to the console session. Only the image tags in §9.1 changed.
+
+**Two things you need to act on:**
+- **One version is not in D-05.** Generating the Maven Wrapper needs `maven-wrapper-plugin`. I wrote 3.3.2, but nobody has checked it against Maven Central. Please check it and add it to D-05 before phase 1, or give me the version to use.
+- **How the stand-in gets its versions.** Its `pom.xml` uses `spring-boot-starter-parent` 3.5.16 as its parent only to get pinned plugin and library versions: Jackson, JUnit, and the build-helper and shade plugins. It has no Spring dependency at runtime, so your "no web framework" condition holds. Without that parent, I would have had to add about five more versions that nobody has checked. The PostgreSQL JDBC driver is still set explicitly to 42.7.14, as D-05 says. If you'd rather the stand-in have no Boot parent at all, those five versions need adding to D-05.
+
+**Weak points in the plan:**
+- **Phase 4 is the largest.** It covers both Keycloak and gateway clients, the bootstrapper, and the whole stand-in module. I kept them together because the bootstrapper needs both clients, and phase 5's manual checks need a working administrator. Splitting it would leave a phase whose exit check can't sign in.
+- **Phase 3 checks the refusal, not access.** Its exit check expects the test administrator to get **403**, because the bootstrapper doesn't exist until phase 4. That is a deliberate check of B-12, not a defect.
+- **The stand-in isn't covered by `./mvnw verify`.** It is a separate Maven project, so every exit check runs `./mvnw -f gateway-stub/pom.xml verify` as a second command.
+- **No coverage threshold.** The PRD sets none. Instead, a guard test fails the build if a new mutating endpoint appears without an audit test.
+
+**Question:** I've drafted the Detailed Implementation in `design_draft.md`. Please review. How would you like to proceed?
+- Approve the Detailed Implementation and proceed to finalization
+- Request revisions to the Detailed Implementation (inline comments or write-in)
+````
+
+### H-030 · 2026-11-10 13:41 UTC · EGM session turn · Fresh draft admin-ui, turn 9: revise Detailed Implementation (D-05 exact pins; CQ-1 fixed methods)
+
+- **Session:** `02eb6e8f-75ce-4bca-bef2-98c5fc29ddf1` (resumed)
+- **Answers:** the question at the end of H-028 (see [QA.md](QA.md))
+- **Took:** 1.1 min · 16 model turns · est. $7.48 · output tokens 7,031
+- **Ran:** Claude Code 2.1.319 (Claude Code) headless, model `claude-opus-5-5`, effort `high`, permission mode `acceptEdits`
+- **Result:** ok
+- **Files changed:** `docs/designs/author-decisions.md` (changed), `egm/admin-ui/design_draft.md` (changed)
+
+**Input** (sent by the orchestrating Claude session):
+
+````text
+2. Request revisions to Detailed Implementation:
+
+1. Versions. Exact pins replace the caret ranges. The author has checked exact versions and recorded them as D-05 in docs/designs/author-decisions.md, including the four extras your plan adds: @vitest/coverage-v8 3.2.7, eslint-config-prettier 10.1.8, @types/node 22.20.5, and globals 16.5.0 (not 15). In entry 1, write every dependency with its exact D-05 version and no ^ or ~. Replace the sentence about version ranges with "Versions are exact (D-05); package-lock.json is committed." The Dockerfile uses node:20.20.2-alpine and caddy:2.11.9-alpine (D-05). Link D-05 from your inputs.
+2. CQ-1. The author's decision is that the allowed methods are fixed in the contract as GET, POST, PUT, PATCH and DELETE, not configurable. The admin-service design will drop its PERMISSION_ALLOWED_METHODS setting. The console offers exactly those five.
+3. CQ-2 is accepted as you wrote it, with the help text saying that SYNCED means the sync call succeeded.
+4. The decisions you took without a gate are accepted:
+   - no menu delete in the console (F-15 asks for add, edit and deactivate);
+   - the 15-icon select with a fallback for unknown names;
+   - CUJ 2 checking Mailpit;
+   - test data created through the API with a cce-e2e token;
+   - browser tests run one at a time;
+   - the Dockerfile verify stage.
+Apply these, then present the gate again.
+````
+
+**Output** (final reply of the headless session):
+
+````markdown
+I've applied all four revisions to [design_draft.md](egm/admin-ui/design_draft.md).
+
+1. **Exact versions:**
+   - Entry 1 now lists all 11 runtime and 24 dev dependencies at their D-05 versions, with no `^` or `~`. That includes the four extras, with `globals` at 16.5.0. The implementer is told to install with `--save-exact`.
+   - The sentence about version ranges is replaced with "Versions are exact (D-05); `package-lock.json` is committed."
+   - The Dockerfile uses `node:20.20.2-alpine` and `caddy:2.11.9-alpine`. Goal 8, C-03 and the build section now give the pinned Node image too.
+   - D-05 is linked from the Overview and from the start of the implementation plan.
+2. **CQ-1:** now recorded as your decision. The five methods are fixed in the contract, the admin-service design drops its setting, and both the Permissions tab and `PERMISSION_METHODS` in `contract.ts` refer to it.
+3. **CQ-2:** recorded as accepted, with the exact help text.
+4. **The decisions I took without a gate:** listed under a new "Decisions taken during drafting and accepted by the author" heading in Open Questions.
+
+**What I checked against the pins:**
+- **Node versions:** Vitest 3.2.7, jsdom 26.1.0 and Playwright 1.65.0 all support both Node 20.20 and 22.22. `process.loadEnvFile`, which the browser tests use to read credentials, has been in Node since 20.12. `@vitest/coverage-v8` matches `vitest` exactly, which it must.
+- **Zod and resolvers:** `@hookform/resolvers` 3.10.0 works with Zod 3. Moving to Zod 4 later would need resolvers 5.
+
+**One thing for the admin-service session:** removing `PERMISSION_ALLOWED_METHODS` also touches its §4.4 "Permission row" rule and its §9.4 configuration table. Both still describe the method list as configurable until that design is updated.
+
+Revised Detailed Implementation in `design_draft.md`. Please review. How would you like to proceed?
+
+1. Approve Detailed Implementation and proceed to finalization
+2. Request revisions to Detailed Implementation (via inline comments or write-in)
+````
+
+### H-031 · 2026-11-10 13:41 UTC · EGM session turn · Fresh draft admin-ui, turn 10: approve Detailed Implementation; finalize
+
+- **Session:** `02eb6e8f-75ce-4bca-bef2-98c5fc29ddf1` (resumed)
+- **Answers:** the question at the end of H-030 (see [QA.md](QA.md))
+- **Took:** 0.6 min · 1 model turns · est. $7.64 · output tokens 3,531
+- **Ran:** Claude Code 2.1.319 (Claude Code) headless, model `claude-opus-5-5`, effort `high`, permission mode `acceptEdits`
+- **Result:** ok
+- **Files changed:** none
+
+**Input** (sent by the orchestrating Claude session):
+
+````text
+1. Approve Detailed Implementation and proceed to finalization.
+
+The admin-service session already has the PERMISSION_ALLOWED_METHODS change for its §4.4 and §9.4, together with its own finalization.
+````
+
+**Output** (final reply of the headless session):
+
+````markdown
+Before saving, I compared the draft against the context it was drafted from, the PRD. One divergence is still open; the rest are already decided.
+
+**Contradictions:**
+1. **Status changes, decided (C-06).** PRD §2 says "Deactivation (`INACTIVE`) is terminal." The draft offers "Activate", "Deactivate" and "Lock" for every status change, following admin-service AD-04 and DEV-4.
+2. **Source of truth, decided (C-07).** PRD §1 says the team's design docs are "the source of truth for contracts, schema and behaviour." The draft treats the approved designs in `docs/designs/` as the source of truth, as the trial's `CLAUDE.md` and `PROVENANCE.md` set out.
+3. **Folder layout, open.** PRD §6 gives the layout as "`pages/ components/ hooks/ api/ auth/ schemas/ context/`", and the F1 notes say "Build `auth/` first (init, `getToken()`, context)". The draft creates no `context/` folder and no auth context. Pages get sign-out through a `useAuth` hook, because the console has no global client state. It also adds `utils/`, holding `describeError`, `formErrors`, `format`, `menuTree` and `permissions`.
+
+**Additions that change a dependency or an interface, all approved at earlier gates:**
+- Playwright and the `npm run e2e` script (C-09).
+- The envelope fields `warnings`, `details` and `partialState`, and the added error codes, which go beyond the PRD's B-03 envelope (admin-service §4.1 and §4.2, D-01).
+- The runtime variable `GATEWAY_UPSTREAM` in the image's Caddyfile.
+- The four extra dev dependencies in D-05.
+- The browser tests' reliance on the `cce-e2e` client, the stand-in gateway's mode switch, and Mailpit.
+
+**About contradiction 3:** it needs your decision before I save.
+- **Option 1, keep the draft and record a deviation.** No `context/` folder and no auth context; `utils/` holds the pure helpers. Each folder then has a job, and there is no empty folder or one-value context. The cost is that the layout departs from PRD §6, so a reviewer checking against the PRD will flag it, and PRD §11 asks for any such deviation to be raised with the team.
+- **Option 2, follow the PRD layout exactly.** Add `src/context/AuthContext.tsx`, a provider set up in `main.tsx` that exposes `logout`, and probably the `/me` profile, through `useAuthContext()`. Then move the `utils/` helpers into the PRD folders: `describeError` and `formErrors` into `schemas/` or `hooks/`, and `menuTree`, `permissions` and `format` next to their callers.
+  - **Gain:** the code matches the PRD word for word.
+  - **Cost:** helpers sit in folders whose names don't describe them. The auth context wraps a value the module already exports, adding a provider layer that test setups must also wrap.
+  - **Fails when:** a helper is needed by both `pages/` and `components/`. Placing it under `hooks/` then breaks the rule that components never import `hooks/`.
+
+How should the draft handle the PRD §6 folder layout?
+
+1. Keep the draft's layout and record it as a deviation from PRD §6
+2. Follow the PRD §6 layout exactly: add an auth context and drop `utils/`
+````
+
+### H-032 · 2026-11-10 13:42 UTC · EGM session turn · Fresh draft admin-service, turn 17: approve Detailed Implementation (wrapper 3.3.4; fixed methods); finalize
+
+- **Session:** `d8132724-9fe1-46b3-8537-799ad75e43bb` (resumed)
+- **Answers:** the question at the end of H-029 (see [QA.md](QA.md))
+- **Took:** 1.8 min · 23 model turns · est. $10.05 · output tokens 9,603
+- **Ran:** Claude Code 2.1.319 (Claude Code) headless, model `claude-opus-5-5`, effort `high`, permission mode `acceptEdits`
+- **Result:** ok
+- **Files changed:** `docs/designs/cce-admin-service.md` (added), `docs/designs/SITEMAP.md` (changed), `egm/admin-service/design_draft.md` (changed)
+
+**Input** (sent by the orchestrating Claude session):
+
+````text
+Approve the Detailed Implementation and proceed to finalization, after three updates:
+
+1. maven-wrapper-plugin: the author checked Maven Central. The current release is 3.3.4, now added to D-05. Use 3.3.4 everywhere you wrote 3.3.2, and drop the "must be added before phase 1" note.
+2. The stand-in's pom using spring-boot-starter-parent 3.5.16 only for plugin and library versions, with no Spring dependency at runtime, is accepted.
+3. A contract change from the console's review (its CQ-1). PERMISSION_ALLOWED_METHODS is configurable, but no endpoint tells a client the list, so a console cannot offer the right methods. The author's decision is to fix the list in the contract as GET, POST, PUT, PATCH and DELETE, and drop the setting from §9.4 and §4.4. The shape of the permission row does not change. The console already offers exactly these five.
+
+The four weak points are accepted: phase 4's size; phase 3's exit check expecting 403 before the bootstrapper exists; the stand-in's separate verify command; and the audit guard test in place of a coverage figure.
+````
+
+**Output** (final reply of the headless session):
+
+````markdown
+The design is saved as [docs/designs/cce-admin-service.md](/home/jayaprakashn/Documents/workspace/elephant-goldfish-trial/docs/designs/cce-admin-service.md), with status "Proposed", and it is registered in `docs/designs/SITEMAP.md`. Its 19 relative links all point at files that exist from both `docs/designs/` and `egm/admin-service/`. The draft in `egm/admin-service/design_draft.md` is identical.
+
+**Your three updates are in:**
+- **Maven wrapper:** `maven-wrapper-plugin` is now 3.3.4 everywhere, and the note asking for it to be added to D-05 is gone.
+- **Stand-in versions:** the stand-in's Boot-parent arrangement is stated in "How to use this plan".
+- **HTTP methods:** the method list is fixed in §4.4 as `GET`, `POST`, `PUT`, `PATCH`, `DELETE`, with a reference to CQ-1, and `PERMISSION_ALLOWED_METHODS` is removed from §9.4 and from `PermissionRowRules`.
+
+**For the console session:** the only §4 change is the fixed method list. The permission row's shape is unchanged.
+
+**Reconciling against the PRD (finalization step 1).** No contradiction with the PRD is left undecided, but two decided ones weren't in the Deviations table yet. You had approved both in §4.1 and §4.2. I added them so they get raised with the team under PRD §11:
+- **DEV-5 (B-03):** success bodies can carry `warnings`, deletes return 204 with no body, and health uses B-05's bare shape.
+- **DEV-6 (Appendix B):** eight added error codes and the `partialState` object.
+
+The table now runs DEV-1 to DEV-6 in order. Other changes to interfaces or dependencies that the PRD never raised are recorded as decisions (AD-01 to AD-17), not deviations. Examples are the stand-in gateway, Mailpit, the `CCE_ADMIN_SERVICE` role, the implicit `/me` rows and the V3 shape check.
+
+**Next step:** run `/egm:egm-review docs/designs/cce-admin-service.md` so the design is reviewed from a fresh context.
+````
+

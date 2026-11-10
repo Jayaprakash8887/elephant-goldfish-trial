@@ -1,0 +1,102 @@
+{
+  "duration_api_ms": 795974,
+  "stop_reason": "end_turn",
+  "session_id": "d8132724-9fe1-46b3-8537-799ad75e43bb",
+  "total_cost_usd": 3.8579785999999987,
+  "usage": {
+    "input_tokens": 4,
+    "cache_creation_input_tokens": 11997,
+    "cache_read_input_tokens": 385883,
+    "output_tokens": 7258,
+    "output_tokens_details": {
+      "thinking_tokens": 2237
+    },
+    "server_tool_use": {
+      "web_search_requests": 0,
+      "web_fetch_requests": 0
+    },
+    "service_tier": "standard",
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 11997,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "inference_geo": "global",
+    "iterations": [
+      {
+        "input_tokens": 2,
+        "output_tokens": 1582,
+        "cache_read_input_tokens": 194837,
+        "cache_creation_input_tokens": 8206,
+        "cache_creation": {
+          "ephemeral_5m_input_tokens": 0,
+          "ephemeral_1h_input_tokens": 8206
+        },
+        "type": "message"
+      }
+    ],
+    "speed": "standard",
+    "fallback_credit": null
+  },
+  "modelUsage": {
+    "claude-opus-5-5": {
+      "inputTokens": 60,
+      "outputTokens": 83873,
+      "thinkingTokens": 39473,
+      "cacheReadInputTokens": 3320873,
+      "cacheCreationInputTokens": 189513,
+      "cacheCreationEphemeral5mInputTokens": 0,
+      "cacheCreationEphemeral1hInputTokens": 189513,
+      "webSearchRequests": 0,
+      "costUSD": 3.8579785999999987,
+      "contextWindow": 1000000,
+      "maxOutputTokens": 128000,
+      "canonicalModel": "claude-opus-5-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  },
+  "permission_denials": [],
+  "terminal_reason": "completed",
+  "fast_mode_state": "off",
+  "fast_mode_disabled_reason": "sdk_opt_in_required",
+  "subagent_stats": {
+    "spawned": 0,
+    "requested": {
+      "background": 0,
+      "foreground": 0,
+      "unset": 0
+    },
+    "started_in_background": 0,
+    "max_depth": 0,
+    "spawned_by_subagents": 0,
+    "completed": 0,
+    "failed": 0,
+    "killed": {
+      "parent": 0,
+      "user": 0,
+      "system": 0
+    },
+    "refused": {
+      "depth_limit": 0,
+      "concurrency_limit": 0,
+      "budget": 0
+    },
+    "by_type": {}
+  },
+  "safety_stops": 0,
+  "is_error": false,
+  "num_turns": 7,
+  "subtype": "success",
+  "api_error_status": null,
+  "result": "I've recorded OQ-5 as **AD-11** and your role-delete plan as **AD-12** in [design_draft.md](/home/jayaprakashn/Documents/workspace/elephant-goldfish-trial/egm/admin-service/design_draft.md).\n\n**One limit I added to the stand-in.** It tags every realm role it creates with the attribute `cce-managed=true`, and it deletes only tagged roles. A Keycloak realm can hold roles this module never created, and \"delete every realm role with no rows\" would remove those too. GW-4 now states the same assumption for the real gateway, so the owners can confirm or correct it.\n\n**The console context you asked for.** `partialState` now carries an `operation` field (`ROLE_DELETE`, `ROLE_PERMISSIONS_SAVE`, `USER_CREATE` and so on). A new table maps each operation to its endpoint, the console screen that shows it, and what is saved plus the next step. For a role delete, that is the Roles list delete action, with the \"realm role may remain until the next successful sync\" message.\n\n**The GW-1 assumptions are now written down:**\n- The sync request has no body.\n- Any 2xx status counts as success.\n- The scope defaults to `GLOBAL`.\n- Five settings can change without a code change.\n- A request body or a per-role parameter would still need code. G10 can't promise more than that.\n\n---\n\n**OQ-6: how does the service authenticate to the gateway's sync endpoint?** No input documents this. The gateway checks JWTs, and its doc says it gets the caller's permissions from the token. Whichever option you choose, the stand-in (AD-11) checks the same thing locally, so the client code is exercised.\n\n- **A. A service-account token, through client credentials.**\n  - *How it works:* the service gets a token for its own confidential client `cce-admin-service`, the same client it uses for the Keycloak Admin API, and sends it as `Bearer`. It caches the token until 30 seconds before expiry. The service account holds a realm role, `CCE_ADMIN_SERVICE`, and a seeded `api_permissions` row grants that role `POST /api/permissions/sync-to-keycloak`.\n  - *Trade-offs:*\n    - The sync doesn't depend on who called and doesn't need the caller's token to still be valid.\n    - Granting `SUPER_ADMIN` rights to the endpoint isn't needed.\n    - It adds a second seeded role and permission row, and a token audience mapper (`gateway-service`) on the service's client.\n    - The gateway's logs show the service, not the administrator. Our `audit_log` still records the administrator.\n  - *Fails when:* the gateway doesn't route `/api/permissions/**` through its normal JWT and `api_permissions` check, or it expects a person's token there.\n- **B. Forward the administrator's own token.**\n  - *How it works:* `GatewaySyncClient` sends the `Authorization` header of the request it is handling. The gateway authorizes the administrator by their roles, so `SUPER_ADMIN`'s seeded rows must also include `POST /api/permissions/sync-to-keycloak`, outside `/admin/v1/**`.\n  - *Trade-offs:*\n    - No extra credentials or role.\n    - The gateway sees the real person.\n    - Every role that may save permissions must also be granted the gateway endpoint, and the two can drift apart. That creates an \"allowed to save, not allowed to sync\" state that returns 502 on every save.\n    - The sync can only ever run inside a user request.\n  - *Fails when:* an administrator holds a non-system role that is allowed to save permissions but lacks the gateway row. Every save then fails with 502.\n- **C. A shared secret in a header.**\n  - *How it works:* the service sends a fixed header (name and value from `GATEWAY_SYNC_HEADER_NAME` and `GATEWAY_SYNC_HEADER_VALUE`). The gateway is expected to check it.\n  - *Trade-offs:*\n    - The simplest client, with no token handling.\n    - It needs the gateway to support a check we have no evidence of.\n    - It adds a long-lived secret to rotate in every environment.\n    - It sits outside the JWT model the gateway uses everywhere else.\n  - *Fails when:* the gateway only accepts JWTs, which is what everything in its doc suggests.\n\nWhich option should the design use for OQ-6?\n- A: service-account token (client credentials)\n- B: forward the administrator's token\n- C: shared secret in a header",
+  "ttft_ms": 23046,
+  "type": "result",
+  "duration_ms": 67273,
+  "uuid": "044e39f4-af63-4ae9-9960-2ca0d2731d6d",
+  "ttft_stream_ms": 1618,
+  "time_to_request_ms": 528,
+  "first_content_frame_ms": 1618,
+  "queued_turn_count": 0,
+  "result_index": 0,
+  "credential_expires_at": "2026-11-25T12:02:27.741Z"
+}

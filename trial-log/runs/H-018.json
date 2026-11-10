@@ -1,0 +1,102 @@
+{
+  "duration_api_ms": 679249,
+  "stop_reason": "end_turn",
+  "session_id": "02eb6e8f-75ce-4bca-bef2-98c5fc29ddf1",
+  "total_cost_usd": 3.548477000000001,
+  "usage": {
+    "input_tokens": 22,
+    "cache_creation_input_tokens": 52888,
+    "cache_read_input_tokens": 1869388,
+    "output_tokens": 21642,
+    "output_tokens_details": {
+      "thinking_tokens": 6705
+    },
+    "server_tool_use": {
+      "web_search_requests": 0,
+      "web_fetch_requests": 0
+    },
+    "service_tier": "standard",
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 52888,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "inference_geo": "global",
+    "iterations": [
+      {
+        "input_tokens": 2,
+        "output_tokens": 2079,
+        "cache_read_input_tokens": 192437,
+        "cache_creation_input_tokens": 3701,
+        "cache_creation": {
+          "ephemeral_5m_input_tokens": 0,
+          "ephemeral_1h_input_tokens": 3701
+        },
+        "type": "message"
+      }
+    ],
+    "speed": "standard",
+    "fallback_credit": null
+  },
+  "modelUsage": {
+    "claude-opus-5-5": {
+      "inputTokens": 56,
+      "outputTokens": 71487,
+      "thinkingTokens": 27252,
+      "cacheReadInputTokens": 3288245,
+      "cacheCreationInputTokens": 182608,
+      "cacheCreationEphemeral5mInputTokens": 0,
+      "cacheCreationEphemeral1hInputTokens": 182608,
+      "webSearchRequests": 0,
+      "costUSD": 3.548477000000001,
+      "contextWindow": 1000000,
+      "maxOutputTokens": 128000,
+      "canonicalModel": "claude-opus-5-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  },
+  "permission_denials": [],
+  "terminal_reason": "completed",
+  "fast_mode_state": "off",
+  "fast_mode_disabled_reason": "sdk_opt_in_required",
+  "subagent_stats": {
+    "spawned": 0,
+    "requested": {
+      "background": 0,
+      "foreground": 0,
+      "unset": 0
+    },
+    "started_in_background": 0,
+    "max_depth": 0,
+    "spawned_by_subagents": 0,
+    "completed": 0,
+    "failed": 0,
+    "killed": {
+      "parent": 0,
+      "user": 0,
+      "system": 0
+    },
+    "refused": {
+      "depth_limit": 0,
+      "concurrency_limit": 0,
+      "budget": 0
+    },
+    "by_type": {}
+  },
+  "safety_stops": 0,
+  "is_error": false,
+  "num_turns": 23,
+  "subtype": "success",
+  "api_error_status": null,
+  "result": "I've updated the draft against the admin-service draft's \u00a73 and \u00a74.1\u20134.3, and added the Alternatives section. Both are in [design_draft.md](egm/admin-ui/design_draft.md).\n\n**What changed because of the settled contract:**\n- **Request bodies must hold only contract fields.** The service rejects any extra property with a 400, so forms build each request body field by field. MSW enforces the same rule, so the mistake fails a unit test first.\n- **The 502 on user create now has two cases.** If `partialState.completedSteps` is empty, nothing was changed and the admin may submit again. Otherwise the button stays locked, and the notice shows the audit log id and the Keycloak user id. The Permissions tab uses the same rule for \"saved, not synced\" versus \"nothing saved\".\n- **Roles are fetched page by page.** `GET /roles` is paginated, so the Roles list now has server-side paging. The role pickers use a new `useAllRoles` query that walks every page at 100 per page.\n- **Paging inputs are cleaned before any request.** The service returns 400 for out-of-range paging values instead of clamping them. The console replaces a bad `page` or `pageSize` in the URL with the default first. If a page comes back empty and is past the last page, it moves to the last page.\n- **Server errors map onto the forms.** A field path like `permissions[2].uriPattern` is mapped to the matching form field. The new codes are handled: `USERNAME_IN_USE`, `MENU_HAS_CHILDREN`, `INTERNAL_ERROR`, `NOT_FOUND` and `METHOD_NOT_ALLOWED`.\n- **Local Keycloak is set in `.env`.** It is `http://localhost:8180/auth` with realm `cce`, set through `.env` and not proxied by Vite. The status of every AS-REQ against your \u00a74.1\u20134.3 is now in one table in the draft.\n\n**AS-REQ items still unanswered**, to settle before Detailed Implementation:\n\n| Waiting on | Items |\n|---|---|\n| Author gates | AS-REQ-07 (OQ-4 status changes), 08 (OQ-14 facility scope), 10 (OQ-15 unsynced role), 12 (OQ-12 system role), 23 (OQ-5 sync-failure switch), 24 (OQ-7 test admin, plus \u00a79 reset) |\n| \u00a74.4 onwards: resource shapes and endpoints | AS-REQ-04 (user fields; last login also waits on OQ-8), 05 (create fields; first password also waits on OQ-13), 09 (`q` fields), 11 (role fields and name rule), 13 (menu fields and icon format), 14 (how a menu is deactivated), 15 (inactive menus in a role's set), 16 (body of `PUT /roles/:id/menus` and shape of `GET /roles/:id/menus`), 17 (permission rows), 19 (responses for sync, reset-password and status changes), 20 (`GET /me` fields) |\n| \u00a79 (M0) | AS-REQ-22: whether tokens from the `cce-admin-ui` client carry the audience `gateway-service`. If they don't, every local call is a 401. |\n| Not blocking | AS-REQ-06 step names (\u00a75): the console shows them as sent. AS-REQ-01: codes still to come from OQ-4 and OQ-15. |\n\nAS-REQ-17 also depends on the gateway owners (GW-3, the URI pattern syntax), who may never answer. The admin-service design will probably have to state an assumed syntax for the console to validate against.\n\n**About the Alternatives section:**\n- **A to E** are the options you rejected at the gates, each with your stated reason.\n- **F (generating types from OpenAPI)** I recorded as rejected under your Step 1 item 7. The reason written there is mine: types generated from the code would hide drift from the design. Check that you agree with it.\n- **G (keeping the sync state in `localStorage`)** I decided during drafting and never put it to you. My reasoning is that a stored \"synced\" can be wrong if another admin re-syncs, which could lead to assigning a role whose realm role doesn't exist. Reject it here if you see it differently.\n- **H** lists the options the PRD rules out.\n\nDrafted Alternatives Considered in `design_draft.md`. Please review. How would you like to proceed?\n\n1. Approve Alternatives Considered and proceed to next section\n2. Request revisions to Alternatives Considered (via inline comments or write-in)",
+  "ttft_ms": 3949,
+  "type": "result",
+  "duration_ms": 199831,
+  "uuid": "375ac28e-4704-409a-a32c-439fc795986b",
+  "ttft_stream_ms": 1714,
+  "time_to_request_ms": 565,
+  "first_content_frame_ms": 1714,
+  "queued_turn_count": 0,
+  "result_index": 0,
+  "credential_expires_at": "2026-11-25T12:02:27.741Z"
+}
