@@ -33,6 +33,7 @@ private until its owner shares it.
 |---|---|
 | [trial-log/REPORT.md](trial-log/REPORT.md) | The write-up: the verdict, what was built, the steps, the challenges, cost and recommendations |
 | [trial-log/FINDINGS.md](trial-log/FINDINGS.md) | Every problem found, by stage: Elephant, Goldfish review, implementation |
+| [trial-log/DOCS-COMPARISON.md](trial-log/DOCS-COMPARISON.md) | The docs written from the code, compared with the team's docs on GitHub |
 | [trial-log/JOURNAL.md](trial-log/JOURNAL.md) | One entry per step: what was done, decisions, problems, cost |
 | [trial-log/CHALLENGES.md](trial-log/CHALLENGES.md) | What got in the way of full development with EGM, and how each problem was solved |
 | [trial-log/HISTORY.md](trial-log/HISTORY.md) | Every input sent to EGM and its exact reply, in order |
@@ -41,7 +42,7 @@ private until its owner shares it.
 | [context/](context/) | The inputs: the PRD, the gateway's `api_permissions` contract, and the existing console's docs (see `PROVENANCE.md`). The designs are created fresh from these. |
 | [docs/designs/](docs/designs/) | The approved designs EGM produced |
 | `egm/<design>/` | EGM's drafts and review reports for each design |
-| `cce-admin-service/`, `cce-admin-ui/` | The implementation |
+| `cce-admin-service/`, `cce-admin-ui/` | The implementation, each with a `docs/` folder written from its code |
 
 Each step is a git tag (`step-00`, `step-01`, …). For example, `git show step-03:egm/admin-service/design_draft.md`
 shows a draft as it was at the end of step 3.

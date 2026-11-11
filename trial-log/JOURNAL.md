@@ -329,3 +329,31 @@ your own tasks", so each entry records:
 - **Not done:** the drift findings were recorded, not fixed. Fixing them, and updating the
   designs to match the code, is the next cycle.
 - **Snapshot:** tag `step-05`.
+
+## Step 06 · Docs from the code, compared with the team's docs
+
+- **When:** 2026-11-11. Asked for by the user after the trial.
+- **How:** two fresh agents each wrote one repository's `docs/` from the code alone, with the
+  same six file names as the team's docs on GitHub. They were told not to read the team's docs,
+  the MedLabs repos or any `.env` file. The orchestrator then downloaded the team's docs
+  (`Jayaprakash8887/cce-admin-service` at `0c9c06f`, `Jayaprakash8887/cce-admin-ui` at
+  `8a6d49c`) and compared the two sets.
+- **Output:**
+  - `cce-admin-service/docs/` (6 files, 1,517 lines, 14 Mermaid diagrams).
+  - `cce-admin-ui/docs/` (6 files, 1,289 lines). It passes the repository's Prettier check.
+  - [DOCS-COMPARISON.md](DOCS-COMPARISON.md).
+- **Result:**
+  - **Console:** the team's plan and the code largely agree.
+  - **Service:** they differ where the PRD's fixed constraints apply. The code uses the
+    `public` schema and the gateway's real `api_permissions` shape. It links existing Keycloak
+    users, gives every role implicit `/me` rows, and has last-administrator protection and
+    `ROLE_NOT_SYNCED`. The team's docs miss all of these.
+- **New defects found while writing the docs**, beyond the drift report:
+  - Two simultaneous creates with the same name give 500, not 409.
+  - The OpenAPI document lists 200 for responses that are 201 or 204.
+  - `/health` is always `UP`.
+  - Roles are read from the token, so a removed role works until the token expires.
+  - No rule limits which paths a permission row may grant.
+  - Caddy caches a missing asset's `index.html` for a year.
+  - The text filters keep stale text after the browser's Back button.
+- **Snapshot:** tag `step-06`.
